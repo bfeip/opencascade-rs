@@ -152,7 +152,7 @@ impl GameApp for ViewerApp {
         let mut wasm_engine = None;
 
         let shape = if let Some(step_file) = args.step_file {
-            Shape::read_step(step_file).expect("Failed to read STEP file, {step_file}")
+            Shape::read_step_from_file(step_file).expect("Failed to read STEP file, {step_file}")
         } else if let Some(kicad_file) = args.kicad_file {
             // Parse the kicad file, turn it into a face, extrude it by 1.6mm
             let pcb =

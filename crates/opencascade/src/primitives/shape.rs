@@ -500,10 +500,11 @@ impl Shape {
         BooleanShape { shape, new_edges }
     }
 
-    pub fn read_step(path: impl AsRef<Path>) -> Result<Self, Error> {
+    pub fn read_step_from_file(path: impl AsRef<Path>) -> Result<Self, Error> {
         let mut reader = ffi::STEPControl_Reader_ctor();
 
-        let status = ffi::read_step(reader.pin_mut(), path.as_ref().to_string_lossy().to_string());
+        let status =
+            ffi::read_step_from_file(reader.pin_mut(), path.as_ref().to_string_lossy().to_string());
 
         if status != ffi::IFSelect_ReturnStatus::IFSelect_RetDone {
             return Err(Error::StepReadFailed);
@@ -516,7 +517,23 @@ impl Shape {
         Ok(Self { inner })
     }
 
-    pub fn write_step(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+    pub fn read_step_from_str(s: &str) -> Result<Self, Error> {
+        let mut reader = ffi::STEPControl_Reader_ctor();
+
+        let status = ffi::read_step_from_str(reader.pin_mut(), s);
+
+        if status != ffi::IFSelect_ReturnStatus::IFSelect_RetDone {
+            return Err(Error::StepReadFailed);
+        }
+
+        reader.pin_mut().TransferRoots(&ffi::Message_ProgressRange_ctor());
+
+        let inner = ffi::one_shape_step(&reader);
+
+        Ok(Self { inner })
+    }
+
+    pub fn write_step_to_file(&self, path: impl AsRef<Path>) -> Result<(), Error> {
         let mut writer = ffi::STEPControl_Writer_ctor();
 
         let status = ffi::transfer_shape(writer.pin_mut(), &self.inner);
@@ -525,7 +542,8 @@ impl Shape {
             return Err(Error::StepWriteFailed);
         }
 
-        let status = ffi::write_step(writer.pin_mut(), path.as_ref().to_string_lossy().to_string());
+        let status =
+            ffi::write_step_to_file(writer.pin_mut(), path.as_ref().to_string_lossy().to_string());
 
         if status != ffi::IFSelect_ReturnStatus::IFSelect_RetDone {
             return Err(Error::StepWriteFailed);
@@ -534,10 +552,23 @@ impl Shape {
         Ok(())
     }
 
-    pub fn read_iges(path: impl AsRef<Path>) -> Result<Self, Error> {
+    pub fn write_step_to_string(&self) -> Result<String, Error> {
+        let mut writer = ffi::STEPControl_Writer_ctor();
+
+        let status = ffi::transfer_shape(writer.pin_mut(), &self.inner);
+
+        if status != ffi::IFSelect_ReturnStatus::IFSelect_RetDone {
+            return Err(Error::StepWriteFailed);
+        }
+
+        Ok(ffi::write_step_to_string(writer.pin_mut()))
+    }
+
+    pub fn read_iges_from_file(path: impl AsRef<Path>) -> Result<Self, Error> {
         let mut reader = ffi::IGESControl_Reader_ctor();
 
-        let status = ffi::read_iges(reader.pin_mut(), path.as_ref().to_string_lossy().to_string());
+        let status =
+            ffi::read_iges_from_file(reader.pin_mut(), path.as_ref().to_string_lossy().to_string());
 
         reader.pin_mut().TransferRoots(&ffi::Message_ProgressRange_ctor());
 
@@ -550,7 +581,23 @@ impl Shape {
         Ok(Self { inner })
     }
 
-    pub fn write_iges(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+    pub fn read_iges_from_str(s: &str) -> Result<Self, Error> {
+        let mut reader = ffi::IGESControl_Reader_ctor();
+
+        let status = ffi::read_iges_from_str(reader.pin_mut(), s);
+
+        reader.pin_mut().TransferRoots(&ffi::Message_ProgressRange_ctor());
+
+        if status != ffi::IFSelect_ReturnStatus::IFSelect_RetDone {
+            return Err(Error::IgesReadFailed);
+        }
+
+        let inner = ffi::one_shape_iges(&reader);
+
+        Ok(Self { inner })
+    }
+
+    pub fn write_iges_to_file(&self, path: impl AsRef<Path>) -> Result<(), Error> {
         let mut writer = ffi::IGESControl_Writer_ctor();
 
         let success = ffi::add_shape(writer.pin_mut(), &self.inner);
@@ -561,13 +608,26 @@ impl Shape {
 
         ffi::compute_model(writer.pin_mut());
         let success =
-            ffi::write_iges(writer.pin_mut(), path.as_ref().to_string_lossy().to_string());
+            ffi::write_iges_to_file(writer.pin_mut(), path.as_ref().to_string_lossy().to_string());
 
         if success {
             Ok(())
         } else {
             Err(Error::IgesWriteFailed)
         }
+    }
+
+    pub fn write_iges_to_string(&self) -> Result<String, Error> {
+        let mut writer = ffi::IGESControl_Writer_ctor();
+
+        let success = ffi::add_shape(writer.pin_mut(), &self.inner);
+
+        if !success {
+            return Err(Error::IgesWriteFailed);
+        }
+
+        ffi::compute_model(writer.pin_mut());
+        Ok(ffi::write_iges_to_string(writer.pin_mut()))
     }
 
     pub fn write_brep_text(&self, path: impl AsRef<Path>) -> Result<(), Error> {

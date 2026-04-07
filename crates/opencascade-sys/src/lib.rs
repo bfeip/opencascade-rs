@@ -1180,13 +1180,21 @@ pub mod ffi {
         #[cxx_name = "construct_unique"]
         pub fn IGESControl_Reader_ctor() -> UniquePtr<IGESControl_Reader>;
 
-        pub fn read_step(
+        pub fn read_step_from_file(
             reader: Pin<&mut STEPControl_Reader>,
             filename: String,
         ) -> IFSelect_ReturnStatus;
-        pub fn read_iges(
+        pub fn read_iges_from_file(
             reader: Pin<&mut IGESControl_Reader>,
             filename: String,
+        ) -> IFSelect_ReturnStatus;
+        pub fn read_step_from_str(
+            reader: Pin<&mut STEPControl_Reader>,
+            str: &str,
+        ) -> IFSelect_ReturnStatus;
+        pub fn read_iges_from_str(
+            reader: Pin<&mut IGESControl_Reader>,
+            str: &str,
         ) -> IFSelect_ReturnStatus;
         pub fn TransferRoots(
             self: Pin<&mut STEPControl_Reader>,
@@ -1215,11 +1223,13 @@ pub mod ffi {
         ) -> IFSelect_ReturnStatus;
         pub fn add_shape(writer: Pin<&mut IGESControl_Writer>, shape: &TopoDS_Shape) -> bool;
         pub fn compute_model(writer: Pin<&mut IGESControl_Writer>);
-        pub fn write_step(
+        pub fn write_step_to_file(
             writer: Pin<&mut STEPControl_Writer>,
             filename: String,
         ) -> IFSelect_ReturnStatus;
-        pub fn write_iges(writer: Pin<&mut IGESControl_Writer>, filename: String) -> bool;
+        pub fn write_iges_to_file(writer: Pin<&mut IGESControl_Writer>, filename: String) -> bool;
+        pub fn write_step_to_string(writer: Pin<&mut STEPControl_Writer>) -> String;
+        pub fn write_iges_to_string(writer: Pin<&mut IGESControl_Writer>) -> String;
 
         type StlAPI_Writer;
 

@@ -39,8 +39,8 @@ fn main() {
     });
 
     match format {
-        Format::Iges => model.write_iges(args.output).unwrap(),
-        Format::Step => model.write_step(args.output).unwrap(),
+        Format::Iges => model.write_iges_to_file(args.output).unwrap(),
+        Format::Step => model.write_step_to_file(args.output).unwrap(),
         Format::Stl => model.write_stl(args.output).unwrap(),
     }
 }

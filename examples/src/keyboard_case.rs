@@ -469,11 +469,11 @@ pub fn shape() -> Shape {
 
     // let test_plate = plate.union(&feet);
 
-    // test_plate.write_step("feet_plate.step").unwrap();
+    // test_plate.write_step_to_file("feet_plate.step").unwrap();
 
     // test_plate.into()
 
-    case.write_step("keyboard.step").unwrap();
-    feet.write_step("case_feet.step").unwrap();
+    case.write_step_to_file("keyboard.step").unwrap();
+    feet.write_step_to_file("case_feet.step").unwrap();
     case
 }

@@ -1,4 +1,5 @@
 #include "rust/cxx.h"
+#include <sstream>
 #include <BOPAlgo_GlueEnum.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAlgoAPI_Common.hxx>
@@ -369,12 +370,22 @@ inline std::unique_ptr<BRepFeat_MakeCylindricalHole> BRepFeat_MakeCylindricalHol
 }
 
 // Data Import
-inline IFSelect_ReturnStatus read_step(STEPControl_Reader &reader, rust::String theFileName) {
+inline IFSelect_ReturnStatus read_step_from_file(STEPControl_Reader &reader, rust::String theFileName) {
   return reader.ReadFile(theFileName.c_str());
 }
 
-inline IFSelect_ReturnStatus read_iges(IGESControl_Reader &reader, rust::String theFileName) {
+inline IFSelect_ReturnStatus read_iges_from_file(IGESControl_Reader &reader, rust::String theFileName) {
   return reader.ReadFile(theFileName.c_str());
+}
+
+inline IFSelect_ReturnStatus read_step_from_str(STEPControl_Reader &reader, rust::Str str) {
+  std::istringstream stream(std::string(str.data(), str.size()));
+  return reader.ReadStream("memory", stream);
+}
+
+inline IFSelect_ReturnStatus read_iges_from_str(IGESControl_Reader &reader, rust::Str str) {
+  std::istringstream stream(std::string(str.data(), str.size()));
+  return reader.ReadStream("memory", stream);
 }
 
 inline std::unique_ptr<TopoDS_Shape> one_shape_step(const STEPControl_Reader &reader) {
@@ -394,12 +405,24 @@ inline void compute_model(IGESControl_Writer &writer) { writer.ComputeModel(); }
 
 inline bool add_shape(IGESControl_Writer &writer, const TopoDS_Shape &theShape) { return writer.AddShape(theShape); }
 
-inline IFSelect_ReturnStatus write_step(STEPControl_Writer &writer, rust::String theFileName) {
+inline IFSelect_ReturnStatus write_step_to_file(STEPControl_Writer &writer, rust::String theFileName) {
   return writer.Write(theFileName.c_str());
 }
 
-inline bool write_iges(IGESControl_Writer &writer, rust::String theFileName) {
+inline bool write_iges_to_file(IGESControl_Writer &writer, rust::String theFileName) {
   return writer.Write(theFileName.c_str());
+}
+
+inline rust::String write_step_to_string(STEPControl_Writer &writer) {
+  std::ostringstream stream;
+  writer.WriteStream(stream);
+  return rust::String(stream.str());
+}
+
+inline rust::String write_iges_to_string(IGESControl_Writer &writer) {
+  std::ostringstream stream;
+  writer.Write(stream);
+  return rust::String(stream.str());
 }
 
 inline bool write_stl(StlAPI_Writer &writer, const TopoDS_Shape &theShape, rust::String theFileName) {
