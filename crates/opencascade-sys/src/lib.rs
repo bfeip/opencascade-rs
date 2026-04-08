@@ -1264,6 +1264,16 @@ pub mod ffi {
 
         pub fn TopLoc_Location_Transformation(location: &TopLoc_Location) -> UniquePtr<gp_Trsf>;
 
+        pub fn TopoDS_Shape_Location(shape: &TopoDS_Shape) -> UniquePtr<TopLoc_Location>;
+        pub fn TopLoc_Location_IsIdentity(loc: &TopLoc_Location) -> bool;
+
+        // TopoDS_Iterator — iterates direct children of a compound shape
+        type TopoDS_Iterator;
+        pub fn TopoDS_Iterator_ctor(shape: &TopoDS_Shape) -> UniquePtr<TopoDS_Iterator>;
+        pub fn More(self: &TopoDS_Iterator) -> bool;
+        pub fn Next(self: Pin<&mut TopoDS_Iterator>);
+        pub fn TopoDS_Iterator_Value(iter: &TopoDS_Iterator) -> &TopoDS_Shape;
+
         type HandlePoly_Triangulation;
 
         pub fn HandlePoly_Triangulation_ctor(
@@ -1436,4 +1446,5 @@ unsafe impl Send for ffi::TopoDS_Compound {}
 unsafe impl Send for ffi::TopoDS_Shape {}
 
 unsafe impl Send for ffi::TopExp_Explorer {}
+unsafe impl Send for ffi::TopoDS_Iterator {}
 unsafe impl Send for ffi::BRepFilletAPI_MakeChamfer {}

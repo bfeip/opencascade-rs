@@ -80,6 +80,7 @@
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
+#include <TopoDS_Iterator.hxx>
 #include <gp.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Ax3.hxx>
@@ -278,6 +279,14 @@ inline std::unique_ptr<Law_Function> Law_Interpol_into_Law_Function(std::unique_
 }
 
 // Shape stuff
+inline std::unique_ptr<TopoDS_Iterator> TopoDS_Iterator_ctor(const TopoDS_Shape &shape) {
+  return std::unique_ptr<TopoDS_Iterator>(new TopoDS_Iterator(shape));
+}
+
+inline bool TopoDS_Iterator_More(const TopoDS_Iterator &iter) { return iter.More(); }
+
+inline const TopoDS_Shape &TopoDS_Iterator_Value(const TopoDS_Iterator &iter) { return iter.Value(); }
+
 inline const TopoDS_Vertex &TopoDS_cast_to_vertex(const TopoDS_Shape &shape) { return TopoDS::Vertex(shape); }
 inline const TopoDS_Edge &TopoDS_cast_to_edge(const TopoDS_Shape &shape) { return TopoDS::Edge(shape); }
 inline const TopoDS_Wire &TopoDS_cast_to_wire(const TopoDS_Shape &shape) { return TopoDS::Wire(shape); }
@@ -319,6 +328,11 @@ inline std::unique_ptr<gp_Pnt> BRep_Tool_Pnt(const TopoDS_Vertex &vertex) {
 
 inline std::unique_ptr<gp_Trsf> TopLoc_Location_Transformation(const TopLoc_Location &location) {
   return std::unique_ptr<gp_Trsf>(new gp_Trsf(location.Transformation()));
+}
+inline bool TopLoc_Location_IsIdentity(const TopLoc_Location &loc) { return loc.IsIdentity(); }
+
+inline std::unique_ptr<TopLoc_Location> TopoDS_Shape_Location(const TopoDS_Shape &shape) {
+  return std::unique_ptr<TopLoc_Location>(new TopLoc_Location(shape.Location()));
 }
 
 inline std::unique_ptr<HandlePoly_Triangulation>
@@ -591,3 +605,4 @@ inline std::unique_ptr<gp_Pnt> Bnd_Box_CornerMax(const Bnd_Box &box) {
 inline void BRepBndLib_Add(const TopoDS_Shape &shape, Bnd_Box &box, const Standard_Boolean useTriangulation) {
   BRepBndLib::Add(shape, box, useTriangulation);
 }
+

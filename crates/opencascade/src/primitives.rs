@@ -212,6 +212,26 @@ impl Iterator for FaceIterator {
     }
 }
 
+/// Iterates the direct children of a compound shape.
+/// Created via [`Shape::sub_shapes()`].
+pub struct SubShapeIterator {
+    pub(crate) inner: cxx::UniquePtr<ffi::TopoDS_Iterator>,
+}
+
+impl Iterator for SubShapeIterator {
+    type Item = shape::Shape;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.inner.More() {
+            return None;
+        }
+        let child = ffi::TopoDS_Iterator_Value(&self.inner);
+        let s = shape::Shape::from_shape(child);
+        self.inner.pin_mut().Next();
+        Some(s)
+    }
+}
+
 /// Given n and func, returns an iterator of (t, f(t)) values
 /// where t is in the range [0, 1].
 /// Note that n + 1 values are returned.

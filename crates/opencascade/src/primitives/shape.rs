@@ -2,7 +2,8 @@ use crate::{
     mesh::{Mesh, Mesher},
     primitives::{
         make_axis_1, make_axis_2, make_dir, make_point, make_point2d, make_vec, BooleanShape,
-        Compound, Edge, EdgeIterator, Face, FaceIterator, ShapeType, Shell, Solid, Vertex, Wire,
+        Compound, Edge, EdgeIterator, Face, FaceIterator, ShapeType, Shell, Solid, SubShapeIterator,
+        Vertex, Wire,
     },
     Error,
 };
@@ -765,6 +766,37 @@ impl Shape {
     pub fn faces(&self) -> FaceIterator {
         let explorer = ffi::TopExp_Explorer_ctor(&self.inner, ffi::TopAbs_ShapeEnum::TopAbs_FACE);
         FaceIterator { explorer }
+    }
+
+    /// Iterates the direct children of this shape.
+    /// Only meaningful when `shape_type() == ShapeType::Compound`.
+    /// Unlike `edges()` and `faces()`, this does not recurse — it yields the immediate sub-shapes.
+    pub fn sub_shapes(&self) -> SubShapeIterator {
+        SubShapeIterator { inner: ffi::TopoDS_Iterator_ctor(&self.inner) }
+    }
+
+    /// Returns the 4×4 row-major transform matrix from this shape's `TopLoc_Location`.
+    /// `mat[row][col]` with rows and cols 0-indexed.
+    /// The 4th row is implicit `[0, 0, 0, 1]`. Returns identity when the location is identity.
+    pub fn location_as_matrix(&self) -> [[f64; 4]; 4] {
+        let loc = ffi::TopoDS_Shape_Location(&self.inner);
+        if ffi::TopLoc_Location_IsIdentity(&loc) {
+            return [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ];
+        }
+        let trsf = ffi::TopLoc_Location_Transformation(&loc);
+        let mut mat = [[0.0f64; 4]; 4];
+        for row in 0..3 {
+            for col in 0..4 {
+                mat[row][col] = trsf.Value((row + 1) as i32, (col + 1) as i32);
+            }
+        }
+        mat[3] = [0.0, 0.0, 0.0, 1.0];
+        mat
     }
 
     // TODO(bschwind) - Convert the return type to an iterator.
