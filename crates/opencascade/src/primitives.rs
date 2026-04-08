@@ -222,13 +222,20 @@ impl Iterator for SubShapeIterator {
     type Item = shape::Shape;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !self.inner.More() {
-            return None;
+        loop {
+            if !self.inner.More() {
+                return None;
+            }
+            let child = ffi::TopoDS_Iterator_Value(&self.inner);
+            let s = shape::Shape::from_shape(child);
+            self.inner.pin_mut().Next();
+            // Null shapes (myTShape == null) appear in certain STEP files as placeholders
+            // for assembly references without geometry or partially-transferred entities.
+            // Calling shape_type() or any topology method on them is undefined behaviour.
+            if !s.is_null() {
+                return Some(s);
+            }
         }
-        let child = ffi::TopoDS_Iterator_Value(&self.inner);
-        let s = shape::Shape::from_shape(child);
-        self.inner.pin_mut().Next();
-        Some(s)
     }
 }
 

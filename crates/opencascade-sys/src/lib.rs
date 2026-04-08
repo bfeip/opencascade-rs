@@ -1264,6 +1264,7 @@ pub mod ffi {
 
         pub fn TopLoc_Location_Transformation(location: &TopLoc_Location) -> UniquePtr<gp_Trsf>;
 
+        pub fn TopoDS_Shape_IsNull(shape: &TopoDS_Shape) -> bool;
         pub fn TopoDS_Shape_Location(shape: &TopoDS_Shape) -> UniquePtr<TopLoc_Location>;
         pub fn TopLoc_Location_IsIdentity(loc: &TopLoc_Location) -> bool;
 

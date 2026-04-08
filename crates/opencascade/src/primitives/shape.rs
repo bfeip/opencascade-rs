@@ -768,6 +768,12 @@ impl Shape {
         FaceIterator { explorer }
     }
 
+    /// Returns `true` if this shape has no underlying topology (null `myTShape`).
+    /// Calling `shape_type()` or most other methods on a null shape is undefined behaviour.
+    pub fn is_null(&self) -> bool {
+        ffi::TopoDS_Shape_IsNull(&self.inner)
+    }
+
     /// Iterates the direct children of this shape.
     /// Only meaningful when `shape_type() == ShapeType::Compound`.
     /// Unlike `edges()` and `faces()`, this does not recurse — it yields the immediate sub-shapes.

@@ -287,6 +287,8 @@ inline bool TopoDS_Iterator_More(const TopoDS_Iterator &iter) { return iter.More
 
 inline const TopoDS_Shape &TopoDS_Iterator_Value(const TopoDS_Iterator &iter) { return iter.Value(); }
 
+inline bool TopoDS_Shape_IsNull(const TopoDS_Shape &shape) { return shape.IsNull(); }
+
 inline const TopoDS_Vertex &TopoDS_cast_to_vertex(const TopoDS_Shape &shape) { return TopoDS::Vertex(shape); }
 inline const TopoDS_Edge &TopoDS_cast_to_edge(const TopoDS_Shape &shape) { return TopoDS::Edge(shape); }
 inline const TopoDS_Wire &TopoDS_cast_to_wire(const TopoDS_Shape &shape) { return TopoDS::Wire(shape); }
