@@ -1231,6 +1231,83 @@ pub mod ffi {
         pub fn write_step_to_string(writer: Pin<&mut STEPControl_Writer>) -> String;
         pub fn write_iges_to_string(writer: Pin<&mut IGESControl_Writer>) -> String;
 
+        // XCAF/XDE — CAF readers
+        type STEPCAFControl_Reader;
+        type IGESCAFControl_Reader;
+
+        #[cxx_name = "construct_unique"]
+        pub fn new_STEPCAFControl_Reader() -> UniquePtr<STEPCAFControl_Reader>;
+        pub fn SetColorMode(self: Pin<&mut STEPCAFControl_Reader>, on: bool);
+        pub fn SetNameMode(self: Pin<&mut STEPCAFControl_Reader>, on: bool);
+        pub fn SetLayerMode(self: Pin<&mut STEPCAFControl_Reader>, on: bool);
+        pub fn xcaf_step_read_file(
+            reader: Pin<&mut STEPCAFControl_Reader>,
+            path: String,
+        ) -> IFSelect_ReturnStatus;
+        pub fn xcaf_step_transfer(
+            reader: Pin<&mut STEPCAFControl_Reader>,
+            doc: Pin<&mut HandleTDocStd_Document>,
+        ) -> bool;
+
+        #[cxx_name = "construct_unique"]
+        pub fn new_IGESCAFControl_Reader() -> UniquePtr<IGESCAFControl_Reader>;
+        pub fn SetColorMode(self: Pin<&mut IGESCAFControl_Reader>, on: bool);
+        pub fn SetNameMode(self: Pin<&mut IGESCAFControl_Reader>, on: bool);
+        pub fn xcaf_iges_read_file(
+            reader: Pin<&mut IGESCAFControl_Reader>,
+            path: String,
+        ) -> IFSelect_ReturnStatus;
+        pub fn xcaf_iges_transfer(
+            reader: Pin<&mut IGESCAFControl_Reader>,
+            doc: Pin<&mut HandleTDocStd_Document>,
+        ) -> bool;
+
+        // XCAF/XDE — document, tools, and label types
+        type HandleTDocStd_Document;
+        type HandleXCAFDoc_ShapeTool;
+        type HandleXCAFDoc_ColorTool;
+        type TDF_Label;
+        type TDF_LabelSequence;
+
+        pub fn xcaf_new_document() -> UniquePtr<HandleTDocStd_Document>;
+        pub fn xcaf_shape_tool(doc: &HandleTDocStd_Document) -> UniquePtr<HandleXCAFDoc_ShapeTool>;
+        pub fn xcaf_color_tool(doc: &HandleTDocStd_Document) -> UniquePtr<HandleXCAFDoc_ColorTool>;
+
+        pub fn xcaf_free_shapes(tool: &HandleXCAFDoc_ShapeTool) -> UniquePtr<TDF_LabelSequence>;
+        pub fn xcaf_label_components(
+            tool: &HandleXCAFDoc_ShapeTool,
+            label: &TDF_Label,
+        ) -> UniquePtr<TDF_LabelSequence>;
+        pub fn xcaf_seq_len(seq: &TDF_LabelSequence) -> i32;
+        pub fn xcaf_seq_get(seq: &TDF_LabelSequence, index: i32) -> UniquePtr<TDF_Label>;
+
+        pub fn xcaf_label_is_assembly(tool: &HandleXCAFDoc_ShapeTool, label: &TDF_Label) -> bool;
+        pub fn xcaf_label_is_reference(tool: &HandleXCAFDoc_ShapeTool, label: &TDF_Label) -> bool;
+        pub fn xcaf_label_shape(
+            tool: &HandleXCAFDoc_ShapeTool,
+            label: &TDF_Label,
+        ) -> UniquePtr<TopoDS_Shape>;
+        pub fn xcaf_label_location(
+            tool: &HandleXCAFDoc_ShapeTool,
+            label: &TDF_Label,
+        ) -> UniquePtr<TopLoc_Location>;
+        pub fn xcaf_label_name(label: &TDF_Label) -> String;
+
+        pub fn xcaf_color_of_label(
+            tool: &HandleXCAFDoc_ColorTool,
+            label: &TDF_Label,
+            r: &mut f64,
+            g: &mut f64,
+            b: &mut f64,
+        ) -> bool;
+        pub fn xcaf_color_of_shape(
+            tool: &HandleXCAFDoc_ColorTool,
+            shape: &TopoDS_Shape,
+            r: &mut f64,
+            g: &mut f64,
+            b: &mut f64,
+        ) -> bool;
+
         type StlAPI_Writer;
 
         #[cxx_name = "construct_unique"]
@@ -1449,3 +1526,6 @@ unsafe impl Send for ffi::TopoDS_Shape {}
 unsafe impl Send for ffi::TopExp_Explorer {}
 unsafe impl Send for ffi::TopoDS_Iterator {}
 unsafe impl Send for ffi::BRepFilletAPI_MakeChamfer {}
+
+unsafe impl Send for ffi::TDF_Label {}
+unsafe impl Send for ffi::TDF_LabelSequence {}

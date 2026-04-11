@@ -58,6 +58,7 @@
 #include <Geom_Plane.hxx>
 #include <Geom_Surface.hxx>
 #include <Geom_TrimmedCurve.hxx>
+#include <IGESCAFControl_Reader.hxx>
 #include <IGESControl_Reader.hxx>
 #include <IGESControl_Writer.hxx>
 #include <Law_Function.hxx>
@@ -65,18 +66,29 @@
 #include <NCollection_Array1.hxx>
 #include <NCollection_Array2.hxx>
 #include <Poly_Connect.hxx>
+#include <STEPCAFControl_Reader.hxx>
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <Quantity_Color.hxx>
 #include <Standard_Type.hxx>
 #include <StlAPI_Writer.hxx>
+#include <TCollection_AsciiString.hxx>
 #include <TColgp_Array1OfDir.hxx>
 #include <TColgp_HArray1OfPnt.hxx>
+#include <TDF_Label.hxx>
+#include <TDF_LabelSequence.hxx>
+#include <TDataStd_Name.hxx>
+#include <TDocStd_Document.hxx>
 #include <TopAbs_ShapeEnum.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_HSequenceOfShape.hxx>
 #include <TopoDS.hxx>
+#include <XCAFApp_Application.hxx>
+#include <XCAFDoc_ColorTool.hxx>
+#include <XCAFDoc_DocumentTool.hxx>
+#include <XCAFDoc_ShapeTool.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
@@ -118,6 +130,10 @@ typedef opencascade::handle<TopTools_HSequenceOfShape> HandleTopTools_HSequenceO
 typedef opencascade::handle<Law_Function> HandleLawFunction;
 
 typedef opencascade::handle<TColgp_HArray1OfPnt> Handle_TColgpHArray1OfPnt;
+
+typedef opencascade::handle<TDocStd_Document>  HandleTDocStd_Document;
+typedef opencascade::handle<XCAFDoc_ShapeTool> HandleXCAFDoc_ShapeTool;
+typedef opencascade::handle<XCAFDoc_ColorTool> HandleXCAFDoc_ColorTool;
 
 inline std::unique_ptr<Handle_TColgpHArray1OfPnt>
 new_HandleTColgpHArray1OfPnt_from_TColgpHArray1OfPnt(std::unique_ptr<TColgp_HArray1OfPnt> array) {
@@ -606,5 +622,117 @@ inline std::unique_ptr<gp_Pnt> Bnd_Box_CornerMax(const Bnd_Box &box) {
 // BRepBndLib
 inline void BRepBndLib_Add(const TopoDS_Shape &shape, Bnd_Box &box, const Standard_Boolean useTriangulation) {
   BRepBndLib::Add(shape, box, useTriangulation);
+}
+
+// XCAF/XDE — CAF reader file-read and transfer wrappers
+inline IFSelect_ReturnStatus xcaf_step_read_file(STEPCAFControl_Reader &reader,
+                                                   rust::String path) {
+  return reader.ReadFile(path.c_str());
+}
+
+inline bool xcaf_step_transfer(STEPCAFControl_Reader &reader, HandleTDocStd_Document &doc) {
+  return reader.Transfer(doc, Message_ProgressRange());
+}
+
+inline IFSelect_ReturnStatus xcaf_iges_read_file(IGESCAFControl_Reader &reader,
+                                                   rust::String path) {
+  return reader.ReadFile(path.c_str());
+}
+
+inline bool xcaf_iges_transfer(IGESCAFControl_Reader &reader, HandleTDocStd_Document &doc) {
+  return reader.Transfer(doc, Message_ProgressRange());
+}
+
+// XCAF/XDE — document lifecycle
+inline std::unique_ptr<HandleTDocStd_Document> xcaf_new_document() {
+  Handle(XCAFApp_Application) app = XCAFApp_Application::GetApplication();
+  HandleTDocStd_Document doc;
+  app->NewDocument("BinXCAF", doc);
+  return std::unique_ptr<HandleTDocStd_Document>(new HandleTDocStd_Document(doc));
+}
+
+// XCAF/XDE — tool accessors
+inline std::unique_ptr<HandleXCAFDoc_ShapeTool> xcaf_shape_tool(const HandleTDocStd_Document &doc) {
+  return std::unique_ptr<HandleXCAFDoc_ShapeTool>(
+      new HandleXCAFDoc_ShapeTool(XCAFDoc_DocumentTool::ShapeTool(doc->Main())));
+}
+
+inline std::unique_ptr<HandleXCAFDoc_ColorTool> xcaf_color_tool(const HandleTDocStd_Document &doc) {
+  return std::unique_ptr<HandleXCAFDoc_ColorTool>(
+      new HandleXCAFDoc_ColorTool(XCAFDoc_DocumentTool::ColorTool(doc->Main())));
+}
+
+// XCAF/XDE — label sequences
+inline std::unique_ptr<TDF_LabelSequence> xcaf_free_shapes(const HandleXCAFDoc_ShapeTool &tool) {
+  std::unique_ptr<TDF_LabelSequence> seq(new TDF_LabelSequence());
+  tool->GetFreeShapes(*seq);
+  return seq;
+}
+
+inline std::unique_ptr<TDF_LabelSequence>
+xcaf_label_components(const HandleXCAFDoc_ShapeTool &tool, const TDF_Label &label) {
+  std::unique_ptr<TDF_LabelSequence> seq(new TDF_LabelSequence());
+  tool->GetComponents(label, *seq, /*recursive=*/Standard_False);
+  return seq;
+}
+
+inline int32_t xcaf_seq_len(const TDF_LabelSequence &seq) { return seq.Length(); }
+
+// OCCT sequences are 1-indexed; callers pass 1-based indices (consistent with FindKey etc.)
+inline std::unique_ptr<TDF_Label> xcaf_seq_get(const TDF_LabelSequence &seq, int32_t index) {
+  return std::unique_ptr<TDF_Label>(new TDF_Label(seq.Value(index)));
+}
+
+// XCAF/XDE — shape tool queries
+inline bool xcaf_label_is_assembly(const HandleXCAFDoc_ShapeTool &tool, const TDF_Label &label) {
+  return tool->IsAssembly(label);
+}
+
+inline bool xcaf_label_is_reference(const HandleXCAFDoc_ShapeTool &tool, const TDF_Label &label) {
+  return tool->IsReference(label);
+}
+
+inline std::unique_ptr<TopoDS_Shape>
+xcaf_label_shape(const HandleXCAFDoc_ShapeTool &tool, const TDF_Label &label) {
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(tool->GetShape(label)));
+}
+
+inline std::unique_ptr<TopLoc_Location>
+xcaf_label_location(const HandleXCAFDoc_ShapeTool &tool, const TDF_Label &label) {
+  return std::unique_ptr<TopLoc_Location>(new TopLoc_Location(tool->GetLocation(label)));
+}
+
+// XCAF/XDE — label attribute queries
+inline rust::String xcaf_label_name(const TDF_Label &label) {
+  Handle(TDataStd_Name) attr;
+  if (label.FindAttribute(TDataStd_Name::GetID(), attr)) {
+    return std::string(TCollection_AsciiString(attr->Get()).ToCString());
+  }
+  return rust::String("");
+}
+
+// XCAF/XDE — color tool queries (Surface → Gen → Curve priority)
+inline bool xcaf_color_of_label(const HandleXCAFDoc_ColorTool &tool, const TDF_Label &label,
+                                 double &r, double &g, double &b) {
+  Quantity_Color c;
+  if (tool->GetColor(label, XCAFDoc_ColorSurf, c) ||
+      tool->GetColor(label, XCAFDoc_ColorGen,  c) ||
+      tool->GetColor(label, XCAFDoc_ColorCurv, c)) {
+    r = c.Red(); g = c.Green(); b = c.Blue();
+    return true;
+  }
+  return false;
+}
+
+inline bool xcaf_color_of_shape(const HandleXCAFDoc_ColorTool &tool, const TopoDS_Shape &shape,
+                                  double &r, double &g, double &b) {
+  Quantity_Color c;
+  if (tool->GetColor(shape, XCAFDoc_ColorSurf, c) ||
+      tool->GetColor(shape, XCAFDoc_ColorGen,  c) ||
+      tool->GetColor(shape, XCAFDoc_ColorCurv, c)) {
+    r = c.Red(); g = c.Green(); b = c.Blue();
+    return true;
+  }
+  return false;
 }
 

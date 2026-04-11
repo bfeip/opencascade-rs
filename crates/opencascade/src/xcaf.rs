@@ -1,0 +1,192 @@
+use cxx::UniquePtr;
+use opencascade_sys::ffi;
+use std::path::Path;
+
+use crate::{primitives::Shape, Error};
+
+/// An XDE/XCAF document. Loaded via a `STEPCAFControl_Reader` or `IGESCAFControl_Reader`
+/// and provides access to shapes, assembly structure, names, and colors.
+pub struct XcafDocument {
+    pub(crate) inner: UniquePtr<ffi::HandleTDocStd_Document>,
+}
+
+impl XcafDocument {
+    /// Create an empty document.
+    pub fn new() -> Self {
+        Self { inner: ffi::xcaf_new_document() }
+    }
+
+    /// Read a STEP file with full metadata (names, colors, layers).
+    pub fn read_step(path: impl AsRef<Path>) -> Result<Self, Error> {
+        let mut doc = Self::new();
+        let path_str = path.as_ref().to_string_lossy().into_owned();
+
+        let mut reader = ffi::new_STEPCAFControl_Reader();
+        reader.pin_mut().SetColorMode(true);
+        reader.pin_mut().SetNameMode(true);
+        reader.pin_mut().SetLayerMode(true);
+
+        let status = ffi::xcaf_step_read_file(reader.pin_mut(), path_str);
+        if status != ffi::IFSelect_ReturnStatus::IFSelect_RetDone {
+            return Err(Error::StepReadFailed);
+        }
+        if !ffi::xcaf_step_transfer(reader.pin_mut(), doc.inner.pin_mut()) {
+            return Err(Error::StepReadFailed);
+        }
+        Ok(doc)
+    }
+
+    /// Read an IGES file with full metadata (names, colors).
+    pub fn read_iges(path: impl AsRef<Path>) -> Result<Self, Error> {
+        let mut doc = Self::new();
+        let path_str = path.as_ref().to_string_lossy().into_owned();
+
+        let mut reader = ffi::new_IGESCAFControl_Reader();
+        reader.pin_mut().SetColorMode(true);
+        reader.pin_mut().SetNameMode(true);
+
+        let status = ffi::xcaf_iges_read_file(reader.pin_mut(), path_str);
+        if status != ffi::IFSelect_ReturnStatus::IFSelect_RetDone {
+            return Err(Error::IgesReadFailed);
+        }
+        if !ffi::xcaf_iges_transfer(reader.pin_mut(), doc.inner.pin_mut()) {
+            return Err(Error::IgesReadFailed);
+        }
+        Ok(doc)
+    }
+
+    pub fn shape_tool(&self) -> XcafShapeTool {
+        XcafShapeTool { inner: ffi::xcaf_shape_tool(&self.inner) }
+    }
+
+    pub fn color_tool(&self) -> XcafColorTool {
+        XcafColorTool { inner: ffi::xcaf_color_tool(&self.inner) }
+    }
+}
+
+impl Default for XcafDocument {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Provides shape-tree traversal and geometry access within an [`XcafDocument`].
+pub struct XcafShapeTool {
+    inner: UniquePtr<ffi::HandleXCAFDoc_ShapeTool>,
+}
+
+impl XcafShapeTool {
+    /// Iterate over the top-level ("free") shapes in the document.
+    pub fn free_shapes(&self) -> XcafLabelIter {
+        let seq = ffi::xcaf_free_shapes(&self.inner);
+        let len = ffi::xcaf_seq_len(&seq);
+        XcafLabelIter { seq, len, next: 1 }
+    }
+
+    /// Iterate over the direct components of an assembly label.
+    pub fn components(&self, label: &XcafLabel) -> XcafLabelIter {
+        let seq = ffi::xcaf_label_components(&self.inner, &label.inner);
+        let len = ffi::xcaf_seq_len(&seq);
+        XcafLabelIter { seq, len, next: 1 }
+    }
+
+    pub fn is_assembly(&self, label: &XcafLabel) -> bool {
+        ffi::xcaf_label_is_assembly(&self.inner, &label.inner)
+    }
+
+    pub fn is_reference(&self, label: &XcafLabel) -> bool {
+        ffi::xcaf_label_is_reference(&self.inner, &label.inner)
+    }
+
+    /// Get the `TopoDS_Shape` associated with a label.
+    pub fn shape(&self, label: &XcafLabel) -> Shape {
+        Shape { inner: ffi::xcaf_label_shape(&self.inner, &label.inner) }
+    }
+
+    /// Extract the placement of a label as a row-major 4×4 matrix.
+    ///
+    /// Row/column are 0-indexed. The 4th row is always `[0, 0, 0, 1]`.
+    /// Returns the identity matrix when the label has no location set.
+    pub fn location_matrix(&self, label: &XcafLabel) -> [[f64; 4]; 4] {
+        let loc = ffi::xcaf_label_location(&self.inner, &label.inner);
+        if ffi::TopLoc_Location_IsIdentity(&loc) {
+            return [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ];
+        }
+        let trsf = ffi::TopLoc_Location_Transformation(&loc);
+        let mut mat = [[0.0f64; 4]; 4];
+        for row in 0..3 {
+            for col in 0..4 {
+                mat[row][col] = trsf.Value((row + 1) as i32, (col + 1) as i32);
+            }
+        }
+        mat[3] = [0.0, 0.0, 0.0, 1.0];
+        mat
+    }
+}
+
+/// Provides per-label and per-shape color queries within an [`XcafDocument`].
+pub struct XcafColorTool {
+    inner: UniquePtr<ffi::HandleXCAFDoc_ColorTool>,
+}
+
+impl XcafColorTool {
+    /// Look up the color assigned to a label. Returns `(r, g, b)` in linear [0, 1].
+    /// Tries surface color, then generic color, then curve color.
+    pub fn color_of_label(&self, label: &XcafLabel) -> Option<(f32, f32, f32)> {
+        let (mut r, mut g, mut b) = (0.0f64, 0.0f64, 0.0f64);
+        if ffi::xcaf_color_of_label(&self.inner, &label.inner, &mut r, &mut g, &mut b) {
+            Some((r as f32, g as f32, b as f32))
+        } else {
+            None
+        }
+    }
+
+    /// Look up the color assigned to a shape. Returns `(r, g, b)` in linear [0, 1].
+    pub fn color_of_shape(&self, shape: &Shape) -> Option<(f32, f32, f32)> {
+        let (mut r, mut g, mut b) = (0.0f64, 0.0f64, 0.0f64);
+        if ffi::xcaf_color_of_shape(&self.inner, &shape.inner, &mut r, &mut g, &mut b) {
+            Some((r as f32, g as f32, b as f32))
+        } else {
+            None
+        }
+    }
+}
+
+/// A node in the XCAF label tree. Holds a name, location, and either sub-components
+/// (assembly) or geometry (leaf shape).
+pub struct XcafLabel {
+    pub(crate) inner: UniquePtr<ffi::TDF_Label>,
+}
+
+impl XcafLabel {
+    /// The part name stored in the `TDataStd_Name` attribute, if any.
+    pub fn name(&self) -> Option<String> {
+        let s = ffi::xcaf_label_name(&self.inner);
+        if s.is_empty() { None } else { Some(s) }
+    }
+}
+
+/// Iterator over a `TDF_LabelSequence`. Uses 1-based OCCT indexing internally.
+pub struct XcafLabelIter {
+    seq: UniquePtr<ffi::TDF_LabelSequence>,
+    len: i32,
+    next: i32,
+}
+
+impl Iterator for XcafLabelIter {
+    type Item = XcafLabel;
+
+    fn next(&mut self) -> Option<XcafLabel> {
+        if self.next > self.len {
+            return None;
+        }
+        let label = ffi::xcaf_seq_get(&self.seq, self.next);
+        self.next += 1;
+        Some(XcafLabel { inner: label })
+    }
+}

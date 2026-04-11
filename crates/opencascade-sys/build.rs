@@ -27,8 +27,13 @@ const OCCT_LIBS: &[&str] = &[
     "TKOffset",
     "TKXSBase",
     "TKCAF",
+    "TKCDF",
+    "TKHLR",
     "TKLCAF",
     "TKXCAF",
+    "TKVCAF",
+    "TKService",
+    "TKV3d",
 ];
 
 fn main() {
