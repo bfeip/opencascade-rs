@@ -85,15 +85,35 @@ impl Mesher {
             }
 
             // Add in the normals.
-            // TODO(bschwind) - Use `location` to transform the normals.
-            let normal_array = ffi::TColgp_Array1OfDir_ctor(0, face_point_count);
-
             ffi::compute_normals(&face.inner, &triangulation_handle);
 
-            // TODO(bschwind) - Why do we start at 1 here?
-            for i in 1..(normal_array.Length() as usize) {
-                let normal = ffi::Poly_Triangulation_Normal(triangulation, i as i32);
-                normals.push(dvec3(normal.X(), normal.Y(), normal.Z()));
+            // OCCT normals are oriented along the underlying surface's parametric normal,
+            // regardless of face orientation. For Reversed faces the winding is already
+            // flipped above so the triangle is front-facing, but the surface normal still
+            // points inward. Negate those normals so they agree with the winding.
+            let normal_sign = if face.orientation() == FaceOrientation::Forward { 1.0 } else { -1.0 };
+
+            // The triangulation stores normals in the face's local coordinate space.
+            // Apply the same location transform used for vertices so that normals end
+            // up in the same world space. gp_Dir::Transform applies only the rotational
+            // part of the transform (no translation), which is correct for directions.
+            let location_is_identity = ffi::TopLoc_Location_IsIdentity(&location);
+            let transform = if !location_is_identity {
+                Some(ffi::TopLoc_Location_Transformation(&location))
+            } else {
+                None
+            };
+
+            for i in 1..=face_point_count as usize {
+                let mut normal = ffi::Poly_Triangulation_Normal(triangulation, i as i32);
+                if let Some(ref t) = transform {
+                    normal.pin_mut().Transform(t);
+                }
+                normals.push(dvec3(
+                    normal.X() * normal_sign,
+                    normal.Y() * normal_sign,
+                    normal.Z() * normal_sign,
+                ));
             }
 
             for i in 1..=triangulation.NbTriangles() {
