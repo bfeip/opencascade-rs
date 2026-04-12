@@ -25,6 +25,7 @@ impl XcafDocument {
         reader.pin_mut().SetColorMode(true);
         reader.pin_mut().SetNameMode(true);
         reader.pin_mut().SetLayerMode(true);
+        reader.pin_mut().SetGDTMode(true);
 
         let status = ffi::xcaf_step_read_file(reader.pin_mut(), path_str);
         if status != ffi::IFSelect_ReturnStatus::IFSelect_RetDone {
@@ -61,6 +62,10 @@ impl XcafDocument {
 
     pub fn color_tool(&self) -> XcafColorTool {
         XcafColorTool { inner: ffi::xcaf_color_tool(&self.inner) }
+    }
+
+    pub fn dim_tol_tool(&self) -> XcafDimTolTool {
+        XcafDimTolTool { inner: ffi::xcaf_dimtol_tool(&self.inner) }
     }
 }
 
@@ -157,6 +162,61 @@ impl XcafColorTool {
     }
 }
 
+/// Provides access to GD&T/PMI annotations (dimensions, geometric tolerances, datums)
+/// stored in an [`XcafDocument`].
+pub struct XcafDimTolTool {
+    inner: UniquePtr<ffi::HandleXCAFDoc_DimTolTool>,
+}
+
+impl XcafDimTolTool {
+    /// Iterate over all dimension annotation labels.
+    pub fn dimension_labels(&self) -> XcafLabelIter {
+        let seq = ffi::xcaf_dimtol_dimension_labels(&self.inner);
+        let len = ffi::xcaf_seq_len(&seq);
+        XcafLabelIter { seq, len, next: 1 }
+    }
+
+    /// Iterate over all geometric tolerance annotation labels.
+    pub fn geom_tolerance_labels(&self) -> XcafLabelIter {
+        let seq = ffi::xcaf_dimtol_geomtol_labels(&self.inner);
+        let len = ffi::xcaf_seq_len(&seq);
+        XcafLabelIter { seq, len, next: 1 }
+    }
+
+    /// Iterate over all datum annotation labels.
+    pub fn datum_labels(&self) -> XcafLabelIter {
+        let seq = ffi::xcaf_dimtol_datum_labels(&self.inner);
+        let len = ffi::xcaf_seq_len(&seq);
+        XcafLabelIter { seq, len, next: 1 }
+    }
+}
+
+/// Semantic data for a dimension annotation.
+#[derive(Debug)]
+pub struct DimensionData {
+    pub type_: ffi::XCAFDimTolObjects_DimensionType,
+    pub value: f64,
+    pub upper_tolerance: f64,
+    pub lower_tolerance: f64,
+    pub semantic_name: Option<String>,
+}
+
+/// Semantic data for a geometric tolerance annotation.
+#[derive(Debug)]
+pub struct GeomToleranceData {
+    pub type_: ffi::XCAFDimTolObjects_GeomToleranceType,
+    pub value: f64,
+    pub semantic_name: Option<String>,
+}
+
+/// Semantic data for a datum annotation.
+#[derive(Debug)]
+pub struct DatumData {
+    /// Datum identifier (e.g. "A", "B", "C").
+    pub name: Option<String>,
+    pub semantic_name: Option<String>,
+}
+
 /// A node in the XCAF label tree. Holds a name, location, and either sub-components
 /// (assembly) or geometry (leaf shape).
 pub struct XcafLabel {
@@ -168,6 +228,92 @@ impl XcafLabel {
     pub fn name(&self) -> Option<String> {
         let s = ffi::xcaf_label_name(&self.inner);
         if s.is_empty() { None } else { Some(s) }
+    }
+
+    // --- PMI graphical presentation ---
+
+    /// Returns the graphical presentation shape if this label is a dimension, or `None`.
+    pub fn dimension_presentation(&self) -> Option<Shape> {
+        let shape = Shape { inner: ffi::xcaf_dimension_presentation(&self.inner) };
+        if shape.is_null() { None } else { Some(shape) }
+    }
+
+    /// Returns the graphical presentation shape if this label is a geometric tolerance, or `None`.
+    pub fn geom_tolerance_presentation(&self) -> Option<Shape> {
+        let shape = Shape { inner: ffi::xcaf_geomtol_presentation(&self.inner) };
+        if shape.is_null() { None } else { Some(shape) }
+    }
+
+    /// Returns the graphical presentation shape if this label is a datum, or `None`.
+    pub fn datum_presentation(&self) -> Option<Shape> {
+        let shape = Shape { inner: ffi::xcaf_datum_presentation(&self.inner) };
+        if shape.is_null() { None } else { Some(shape) }
+    }
+
+    // --- PMI attribute presence checks ---
+
+    pub fn is_dimension(&self) -> bool {
+        ffi::xcaf_is_dimension(&self.inner)
+    }
+
+    pub fn is_geom_tolerance(&self) -> bool {
+        ffi::xcaf_is_geomtol(&self.inner)
+    }
+
+    pub fn is_datum(&self) -> bool {
+        ffi::xcaf_is_datum(&self.inner)
+    }
+
+    // --- PMI semantic data ---
+
+    /// Returns the semantic data for a dimension annotation, or `None` if this label is not a dimension.
+    pub fn dimension_data(&self) -> Option<DimensionData> {
+        if !ffi::xcaf_is_dimension(&self.inner) {
+            return None;
+        }
+        let semantic_name = {
+            let s = ffi::xcaf_dimension_semantic_name(&self.inner);
+            if s.is_empty() { None } else { Some(s) }
+        };
+        Some(DimensionData {
+            type_: ffi::xcaf_dimension_type(&self.inner),
+            value: ffi::xcaf_dimension_value(&self.inner),
+            upper_tolerance: ffi::xcaf_dimension_upper_tol(&self.inner),
+            lower_tolerance: ffi::xcaf_dimension_lower_tol(&self.inner),
+            semantic_name,
+        })
+    }
+
+    /// Returns the semantic data for a geometric tolerance annotation, or `None`.
+    pub fn geom_tolerance_data(&self) -> Option<GeomToleranceData> {
+        if !ffi::xcaf_is_geomtol(&self.inner) {
+            return None;
+        }
+        let semantic_name = {
+            let s = ffi::xcaf_geomtol_semantic_name(&self.inner);
+            if s.is_empty() { None } else { Some(s) }
+        };
+        Some(GeomToleranceData {
+            type_: ffi::xcaf_geomtol_type(&self.inner),
+            value: ffi::xcaf_geomtol_value(&self.inner),
+            semantic_name,
+        })
+    }
+
+    /// Returns the semantic data for a datum annotation, or `None` if this label is not a datum.
+    pub fn datum_data(&self) -> Option<DatumData> {
+        if !ffi::xcaf_is_datum(&self.inner) {
+            return None;
+        }
+        let name = {
+            let s = ffi::xcaf_datum_name(&self.inner);
+            if s.is_empty() { None } else { Some(s) }
+        };
+        let semantic_name = {
+            let s = ffi::xcaf_datum_semantic_name(&self.inner);
+            if s.is_empty() { None } else { Some(s) }
+        };
+        Some(DatumData { name, semantic_name })
     }
 }
 

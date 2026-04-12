@@ -62,6 +62,64 @@ pub mod ffi {
         GeomAbs_Intersection,
     }
 
+    #[derive(Debug)]
+    #[repr(u32)]
+    pub enum XCAFDimTolObjects_DimensionType {
+        XCAFDimTolObjects_DimensionType_Location_None,
+        XCAFDimTolObjects_DimensionType_Location_CurvedDistance,
+        XCAFDimTolObjects_DimensionType_Location_LinearDistance,
+        XCAFDimTolObjects_DimensionType_Location_LinearDistance_FromCenterToOuter,
+        XCAFDimTolObjects_DimensionType_Location_LinearDistance_FromCenterToInner,
+        XCAFDimTolObjects_DimensionType_Location_LinearDistance_FromOuterToCenter,
+        XCAFDimTolObjects_DimensionType_Location_LinearDistance_FromOuterToOuter,
+        XCAFDimTolObjects_DimensionType_Location_LinearDistance_FromOuterToInner,
+        XCAFDimTolObjects_DimensionType_Location_LinearDistance_FromInnerToCenter,
+        XCAFDimTolObjects_DimensionType_Location_LinearDistance_FromInnerToOuter,
+        XCAFDimTolObjects_DimensionType_Location_LinearDistance_FromInnerToInner,
+        XCAFDimTolObjects_DimensionType_Location_Angular,
+        XCAFDimTolObjects_DimensionType_Location_Oriented,
+        XCAFDimTolObjects_DimensionType_Location_WithPath,
+        XCAFDimTolObjects_DimensionType_Size_CurveLength,
+        XCAFDimTolObjects_DimensionType_Size_Diameter,
+        XCAFDimTolObjects_DimensionType_Size_SphericalDiameter,
+        XCAFDimTolObjects_DimensionType_Size_Radius,
+        XCAFDimTolObjects_DimensionType_Size_SphericalRadius,
+        XCAFDimTolObjects_DimensionType_Size_ToroidalMinorDiameter,
+        XCAFDimTolObjects_DimensionType_Size_ToroidalMajorDiameter,
+        XCAFDimTolObjects_DimensionType_Size_ToroidalMinorRadius,
+        XCAFDimTolObjects_DimensionType_Size_ToroidalMajorRadius,
+        XCAFDimTolObjects_DimensionType_Size_ToroidalHighMajorDiameter,
+        XCAFDimTolObjects_DimensionType_Size_ToroidalLowMajorDiameter,
+        XCAFDimTolObjects_DimensionType_Size_ToroidalHighMajorRadius,
+        XCAFDimTolObjects_DimensionType_Size_ToroidalLowMajorRadius,
+        XCAFDimTolObjects_DimensionType_Size_Thickness,
+        XCAFDimTolObjects_DimensionType_Size_Angular,
+        XCAFDimTolObjects_DimensionType_Size_WithPath,
+        XCAFDimTolObjects_DimensionType_CommonLabel,
+        XCAFDimTolObjects_DimensionType_DimensionPresentation,
+    }
+
+    #[derive(Debug)]
+    #[repr(u32)]
+    pub enum XCAFDimTolObjects_GeomToleranceType {
+        XCAFDimTolObjects_GeomToleranceType_None,
+        XCAFDimTolObjects_GeomToleranceType_Angularity,
+        XCAFDimTolObjects_GeomToleranceType_CircularRunout,
+        XCAFDimTolObjects_GeomToleranceType_CircularityOrRoundness,
+        XCAFDimTolObjects_GeomToleranceType_Coaxiality,
+        XCAFDimTolObjects_GeomToleranceType_Concentricity,
+        XCAFDimTolObjects_GeomToleranceType_Cylindricity,
+        XCAFDimTolObjects_GeomToleranceType_Flatness,
+        XCAFDimTolObjects_GeomToleranceType_Parallelism,
+        XCAFDimTolObjects_GeomToleranceType_Perpendicularity,
+        XCAFDimTolObjects_GeomToleranceType_Position,
+        XCAFDimTolObjects_GeomToleranceType_ProfileOfLine,
+        XCAFDimTolObjects_GeomToleranceType_ProfileOfSurface,
+        XCAFDimTolObjects_GeomToleranceType_Straightness,
+        XCAFDimTolObjects_GeomToleranceType_Symmetry,
+        XCAFDimTolObjects_GeomToleranceType_TotalRunout,
+    }
+
     unsafe extern "C++" {
         // https://github.com/dtolnay/cxx/issues/280
 
@@ -1240,6 +1298,7 @@ pub mod ffi {
         pub fn SetColorMode(self: Pin<&mut STEPCAFControl_Reader>, on: bool);
         pub fn SetNameMode(self: Pin<&mut STEPCAFControl_Reader>, on: bool);
         pub fn SetLayerMode(self: Pin<&mut STEPCAFControl_Reader>, on: bool);
+        pub fn SetGDTMode(self: Pin<&mut STEPCAFControl_Reader>, on: bool);
         pub fn xcaf_step_read_file(
             reader: Pin<&mut STEPCAFControl_Reader>,
             path: String,
@@ -1307,6 +1366,46 @@ pub mod ffi {
             g: &mut f64,
             b: &mut f64,
         ) -> bool;
+
+        // XCAF/XDE — DimTolTool
+        type HandleXCAFDoc_DimTolTool;
+
+        pub fn xcaf_dimtol_tool(
+            doc: &HandleTDocStd_Document,
+        ) -> UniquePtr<HandleXCAFDoc_DimTolTool>;
+        pub fn xcaf_dimtol_dimension_labels(
+            tool: &HandleXCAFDoc_DimTolTool,
+        ) -> UniquePtr<TDF_LabelSequence>;
+        pub fn xcaf_dimtol_geomtol_labels(
+            tool: &HandleXCAFDoc_DimTolTool,
+        ) -> UniquePtr<TDF_LabelSequence>;
+        pub fn xcaf_dimtol_datum_labels(
+            tool: &HandleXCAFDoc_DimTolTool,
+        ) -> UniquePtr<TDF_LabelSequence>;
+
+        pub fn xcaf_dimension_presentation(label: &TDF_Label) -> UniquePtr<TopoDS_Shape>;
+        pub fn xcaf_geomtol_presentation(label: &TDF_Label) -> UniquePtr<TopoDS_Shape>;
+        pub fn xcaf_datum_presentation(label: &TDF_Label) -> UniquePtr<TopoDS_Shape>;
+
+        pub fn xcaf_is_dimension(label: &TDF_Label) -> bool;
+        pub fn xcaf_is_geomtol(label: &TDF_Label) -> bool;
+        pub fn xcaf_is_datum(label: &TDF_Label) -> bool;
+
+        type XCAFDimTolObjects_DimensionType;
+        type XCAFDimTolObjects_GeomToleranceType;
+
+        pub fn xcaf_dimension_type(label: &TDF_Label) -> XCAFDimTolObjects_DimensionType;
+        pub fn xcaf_dimension_value(label: &TDF_Label) -> f64;
+        pub fn xcaf_dimension_upper_tol(label: &TDF_Label) -> f64;
+        pub fn xcaf_dimension_lower_tol(label: &TDF_Label) -> f64;
+        pub fn xcaf_dimension_semantic_name(label: &TDF_Label) -> String;
+
+        pub fn xcaf_geomtol_type(label: &TDF_Label) -> XCAFDimTolObjects_GeomToleranceType;
+        pub fn xcaf_geomtol_value(label: &TDF_Label) -> f64;
+        pub fn xcaf_geomtol_semantic_name(label: &TDF_Label) -> String;
+
+        pub fn xcaf_datum_name(label: &TDF_Label) -> String;
+        pub fn xcaf_datum_semantic_name(label: &TDF_Label) -> String;
 
         type StlAPI_Writer;
 

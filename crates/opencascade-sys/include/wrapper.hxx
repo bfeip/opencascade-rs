@@ -87,8 +87,15 @@
 #include <TopoDS.hxx>
 #include <XCAFApp_Application.hxx>
 #include <XCAFDoc_ColorTool.hxx>
+#include <XCAFDoc_Datum.hxx>
+#include <XCAFDoc_Dimension.hxx>
+#include <XCAFDoc_DimTolTool.hxx>
 #include <XCAFDoc_DocumentTool.hxx>
+#include <XCAFDoc_GeomTolerance.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
+#include <XCAFDimTolObjects_DatumObject.hxx>
+#include <XCAFDimTolObjects_DimensionObject.hxx>
+#include <XCAFDimTolObjects_GeomToleranceObject.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
@@ -131,9 +138,10 @@ typedef opencascade::handle<Law_Function> HandleLawFunction;
 
 typedef opencascade::handle<TColgp_HArray1OfPnt> Handle_TColgpHArray1OfPnt;
 
-typedef opencascade::handle<TDocStd_Document>  HandleTDocStd_Document;
-typedef opencascade::handle<XCAFDoc_ShapeTool> HandleXCAFDoc_ShapeTool;
-typedef opencascade::handle<XCAFDoc_ColorTool> HandleXCAFDoc_ColorTool;
+typedef opencascade::handle<TDocStd_Document>   HandleTDocStd_Document;
+typedef opencascade::handle<XCAFDoc_ShapeTool>  HandleXCAFDoc_ShapeTool;
+typedef opencascade::handle<XCAFDoc_ColorTool>  HandleXCAFDoc_ColorTool;
+typedef opencascade::handle<XCAFDoc_DimTolTool> HandleXCAFDoc_DimTolTool;
 
 inline std::unique_ptr<Handle_TColgpHArray1OfPnt>
 new_HandleTColgpHArray1OfPnt_from_TColgpHArray1OfPnt(std::unique_ptr<TColgp_HArray1OfPnt> array) {
@@ -734,5 +742,163 @@ inline bool xcaf_color_of_shape(const HandleXCAFDoc_ColorTool &tool, const TopoD
     return true;
   }
   return false;
+}
+
+// XCAF/XDE — DimTolTool accessor
+inline std::unique_ptr<HandleXCAFDoc_DimTolTool>
+xcaf_dimtol_tool(const HandleTDocStd_Document &doc) {
+  return std::unique_ptr<HandleXCAFDoc_DimTolTool>(
+      new HandleXCAFDoc_DimTolTool(XCAFDoc_DocumentTool::DimTolTool(doc->Main())));
+}
+
+// XCAF/XDE — DimTolTool label enumeration (one function per PMI type)
+inline std::unique_ptr<TDF_LabelSequence>
+xcaf_dimtol_dimension_labels(const HandleXCAFDoc_DimTolTool &tool) {
+  std::unique_ptr<TDF_LabelSequence> seq(new TDF_LabelSequence());
+  tool->GetDimensionLabels(*seq);
+  return seq;
+}
+
+inline std::unique_ptr<TDF_LabelSequence>
+xcaf_dimtol_geomtol_labels(const HandleXCAFDoc_DimTolTool &tool) {
+  std::unique_ptr<TDF_LabelSequence> seq(new TDF_LabelSequence());
+  tool->GetGeomToleranceLabels(*seq);
+  return seq;
+}
+
+inline std::unique_ptr<TDF_LabelSequence>
+xcaf_dimtol_datum_labels(const HandleXCAFDoc_DimTolTool &tool) {
+  std::unique_ptr<TDF_LabelSequence> seq(new TDF_LabelSequence());
+  tool->GetDatumLabels(*seq);
+  return seq;
+}
+
+// XCAF/XDE — PMI graphical presentation shape extraction (one function per type)
+// Returns a null TopoDS_Shape if the label has no presentation.
+inline std::unique_ptr<TopoDS_Shape>
+xcaf_dimension_presentation(const TDF_Label &label) {
+  Handle(XCAFDoc_Dimension) attr;
+  if (label.FindAttribute(XCAFDoc_Dimension::GetID(), attr) && !attr->GetObject().IsNull())
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(attr->GetObject()->GetPresentation()));
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape());
+}
+
+inline std::unique_ptr<TopoDS_Shape>
+xcaf_geomtol_presentation(const TDF_Label &label) {
+  Handle(XCAFDoc_GeomTolerance) attr;
+  if (label.FindAttribute(XCAFDoc_GeomTolerance::GetID(), attr) && !attr->GetObject().IsNull())
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(attr->GetObject()->GetPresentation()));
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape());
+}
+
+inline std::unique_ptr<TopoDS_Shape>
+xcaf_datum_presentation(const TDF_Label &label) {
+  Handle(XCAFDoc_Datum) attr;
+  if (label.FindAttribute(XCAFDoc_Datum::GetID(), attr) && !attr->GetObject().IsNull())
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(attr->GetObject()->GetPresentation()));
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape());
+}
+
+// XCAF/XDE — PMI attribute presence checks (bool guards for semantic data accessors)
+inline bool xcaf_is_dimension(const TDF_Label &label) {
+  Handle(XCAFDoc_Dimension) attr;
+  return label.FindAttribute(XCAFDoc_Dimension::GetID(), attr) && !attr->GetObject().IsNull();
+}
+
+inline bool xcaf_is_geomtol(const TDF_Label &label) {
+  Handle(XCAFDoc_GeomTolerance) attr;
+  return label.FindAttribute(XCAFDoc_GeomTolerance::GetID(), attr) && !attr->GetObject().IsNull();
+}
+
+inline bool xcaf_is_datum(const TDF_Label &label) {
+  Handle(XCAFDoc_Datum) attr;
+  return label.FindAttribute(XCAFDoc_Datum::GetID(), attr) && !attr->GetObject().IsNull();
+}
+
+// XCAF/XDE — PMI semantic data (dimension)
+// Returns XCAFDimTolObjects_DimensionType_Location_None if the attribute is not present.
+inline XCAFDimTolObjects_DimensionType xcaf_dimension_type(const TDF_Label &label) {
+  Handle(XCAFDoc_Dimension) attr;
+  if (label.FindAttribute(XCAFDoc_Dimension::GetID(), attr) && !attr->GetObject().IsNull())
+    return attr->GetObject()->GetType();
+  return XCAFDimTolObjects_DimensionType_Location_None;
+}
+
+inline double xcaf_dimension_value(const TDF_Label &label) {
+  Handle(XCAFDoc_Dimension) attr;
+  if (label.FindAttribute(XCAFDoc_Dimension::GetID(), attr) && !attr->GetObject().IsNull())
+    return attr->GetObject()->GetValue();
+  return 0.0;
+}
+
+inline double xcaf_dimension_upper_tol(const TDF_Label &label) {
+  Handle(XCAFDoc_Dimension) attr;
+  if (label.FindAttribute(XCAFDoc_Dimension::GetID(), attr) && !attr->GetObject().IsNull())
+    return attr->GetObject()->GetUpperTolValue();
+  return 0.0;
+}
+
+inline double xcaf_dimension_lower_tol(const TDF_Label &label) {
+  Handle(XCAFDoc_Dimension) attr;
+  if (label.FindAttribute(XCAFDoc_Dimension::GetID(), attr) && !attr->GetObject().IsNull())
+    return attr->GetObject()->GetLowerTolValue();
+  return 0.0;
+}
+
+inline rust::String xcaf_dimension_semantic_name(const TDF_Label &label) {
+  Handle(XCAFDoc_Dimension) attr;
+  if (label.FindAttribute(XCAFDoc_Dimension::GetID(), attr) && !attr->GetObject().IsNull()) {
+    Handle(TCollection_HAsciiString) name = attr->GetObject()->GetSemanticName();
+    if (!name.IsNull() && !name->IsEmpty())
+      return rust::String(name->ToCString());
+  }
+  return rust::String("");
+}
+
+// XCAF/XDE — PMI semantic data (geometric tolerance)
+// Returns XCAFDimTolObjects_GeomToleranceType_None if the attribute is not present.
+inline XCAFDimTolObjects_GeomToleranceType xcaf_geomtol_type(const TDF_Label &label) {
+  Handle(XCAFDoc_GeomTolerance) attr;
+  if (label.FindAttribute(XCAFDoc_GeomTolerance::GetID(), attr) && !attr->GetObject().IsNull())
+    return attr->GetObject()->GetType();
+  return XCAFDimTolObjects_GeomToleranceType_None;
+}
+
+inline double xcaf_geomtol_value(const TDF_Label &label) {
+  Handle(XCAFDoc_GeomTolerance) attr;
+  if (label.FindAttribute(XCAFDoc_GeomTolerance::GetID(), attr) && !attr->GetObject().IsNull())
+    return attr->GetObject()->GetValue();
+  return 0.0;
+}
+
+inline rust::String xcaf_geomtol_semantic_name(const TDF_Label &label) {
+  Handle(XCAFDoc_GeomTolerance) attr;
+  if (label.FindAttribute(XCAFDoc_GeomTolerance::GetID(), attr) && !attr->GetObject().IsNull()) {
+    Handle(TCollection_HAsciiString) name = attr->GetObject()->GetSemanticName();
+    if (!name.IsNull() && !name->IsEmpty())
+      return rust::String(name->ToCString());
+  }
+  return rust::String("");
+}
+
+// XCAF/XDE — PMI semantic data (datum)
+inline rust::String xcaf_datum_name(const TDF_Label &label) {
+  Handle(XCAFDoc_Datum) attr;
+  if (label.FindAttribute(XCAFDoc_Datum::GetID(), attr) && !attr->GetObject().IsNull()) {
+    Handle(TCollection_HAsciiString) name = attr->GetObject()->GetName();
+    if (!name.IsNull() && !name->IsEmpty())
+      return rust::String(name->ToCString());
+  }
+  return rust::String("");
+}
+
+inline rust::String xcaf_datum_semantic_name(const TDF_Label &label) {
+  Handle(XCAFDoc_Datum) attr;
+  if (label.FindAttribute(XCAFDoc_Datum::GetID(), attr) && !attr->GetObject().IsNull()) {
+    Handle(TCollection_HAsciiString) name = attr->GetObject()->GetSemanticName();
+    if (!name.IsNull() && !name->IsEmpty())
+      return rust::String(name->ToCString());
+  }
+  return rust::String("");
 }
 
