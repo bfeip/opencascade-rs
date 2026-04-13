@@ -71,6 +71,10 @@ impl XcafDocument {
     pub fn clipping_plane_tool(&self) -> XcafClippingPlaneTool {
         XcafClippingPlaneTool { inner: ffi::xcaf_clipping_plane_tool(&self.inner) }
     }
+
+    pub fn view_tool(&self) -> XcafViewTool {
+        XcafViewTool { inner: ffi::xcaf_view_tool(&self.inner) }
+    }
 }
 
 impl Default for XcafDocument {
@@ -246,6 +250,113 @@ pub struct ClippingPlaneData {
     pub name: Option<String>,
     /// Whether the cutting section is capped (filled).
     pub capping: bool,
+}
+
+/// Provides access to views stored in an [`XcafDocument`].
+pub struct XcafViewTool {
+    inner: UniquePtr<ffi::HandleXCAFDoc_ViewTool>,
+}
+
+impl XcafViewTool {
+    /// Iterate over all view labels in the document.
+    pub fn view_labels(&self) -> XcafLabelIter {
+        let seq = ffi::xcaf_view_labels(&self.inner);
+        let len = ffi::xcaf_seq_len(&seq);
+        XcafLabelIter { seq, len, next: 1 }
+    }
+
+    /// Returns `true` if `label` is a view definition.
+    pub fn is_view(&self, label: &XcafLabel) -> bool {
+        ffi::xcaf_is_view(&self.inner, &label.inner)
+    }
+
+    /// Iterate over the shape labels referenced by a view.
+    pub fn ref_shapes(&self, label: &XcafLabel) -> XcafLabelIter {
+        let seq = ffi::xcaf_view_ref_shapes(&self.inner, &label.inner);
+        let len = ffi::xcaf_seq_len(&seq);
+        XcafLabelIter { seq, len, next: 1 }
+    }
+
+    /// Iterate over the GDT annotation labels referenced by a view.
+    pub fn ref_gdts(&self, label: &XcafLabel) -> XcafLabelIter {
+        let seq = ffi::xcaf_view_ref_gdts(&self.inner, &label.inner);
+        let len = ffi::xcaf_seq_len(&seq);
+        XcafLabelIter { seq, len, next: 1 }
+    }
+
+    /// Iterate over the clipping plane labels referenced by a view.
+    pub fn ref_clipping_planes(&self, label: &XcafLabel) -> XcafLabelIter {
+        let seq = ffi::xcaf_view_ref_clipping_planes(&self.inner, &label.inner);
+        let len = ffi::xcaf_seq_len(&seq);
+        XcafLabelIter { seq, len, next: 1 }
+    }
+
+    /// Returns the camera and window data for a view label, or `None` if the label is invalid.
+    pub fn view_data(&self, label: &XcafLabel) -> Option<ViewData> {
+        let mut obj = ffi::xcaf_view_object(&label.inner);
+        if obj.is_null() {
+            return None;
+        }
+        let mut obj = obj.pin_mut();
+        let name = {
+            let s = ffi::xcaf_view_name(obj.as_mut());
+            if s.is_empty() { None } else { Some(s) }
+        };
+        let pt = ffi::xcaf_view_projection_point(obj.as_mut());
+        let dir = ffi::xcaf_view_direction(obj.as_mut());
+        let up = ffi::xcaf_view_up_direction(obj.as_mut());
+        let projection_type = obj.as_mut().Type();
+        let zoom_factor = obj.as_mut().ZoomFactor();
+        let window_horizontal_size = obj.as_mut().WindowHorizontalSize();
+        let window_vertical_size = obj.as_mut().WindowVerticalSize();
+        let has_front = obj.as_mut().HasFrontPlaneClipping();
+        let front_plane_distance =
+            if has_front { Some(obj.as_mut().FrontPlaneDistance()) } else { None };
+        let has_back = obj.as_mut().HasBackPlaneClipping();
+        let back_plane_distance =
+            if has_back { Some(obj.as_mut().BackPlaneDistance()) } else { None };
+        let has_view_volume_sides_clipping = obj.as_mut().HasViewVolumeSidesClipping();
+        Some(ViewData {
+            name,
+            projection_type,
+            projection_point: [pt.X(), pt.Y(), pt.Z()],
+            view_direction: [dir.X(), dir.Y(), dir.Z()],
+            up_direction: [up.X(), up.Y(), up.Z()],
+            zoom_factor,
+            window_horizontal_size,
+            window_vertical_size,
+            front_plane_distance,
+            back_plane_distance,
+            has_view_volume_sides_clipping,
+        })
+    }
+}
+
+/// Camera and window data for a view stored in an [`XcafDocument`].
+#[derive(Debug)]
+pub struct ViewData {
+    /// Display name, if any.
+    pub name: Option<String>,
+    /// Projection type (parallel or central/perspective).
+    pub projection_type: ffi::XCAFView_ProjectionType,
+    /// Camera/eye position in model space.
+    pub projection_point: [f64; 3],
+    /// View direction vector (camera look direction).
+    pub view_direction: [f64; 3],
+    /// Up direction vector.
+    pub up_direction: [f64; 3],
+    /// Zoom factor.
+    pub zoom_factor: f64,
+    /// Horizontal size of the view window.
+    pub window_horizontal_size: f64,
+    /// Vertical size of the view window.
+    pub window_vertical_size: f64,
+    /// Front clipping plane distance, if set.
+    pub front_plane_distance: Option<f64>,
+    /// Back clipping plane distance, if set.
+    pub back_plane_distance: Option<f64>,
+    /// Whether view-volume sides clipping is active.
+    pub has_view_volume_sides_clipping: bool,
 }
 
 /// Semantic data for a dimension annotation.

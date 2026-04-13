@@ -94,6 +94,10 @@
 #include <XCAFDoc_GeomTolerance.hxx>
 #include <XCAFDoc_ClippingPlaneTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
+#include <XCAFDoc_View.hxx>
+#include <XCAFDoc_ViewTool.hxx>
+#include <XCAFView_Object.hxx>
+#include <XCAFView_ProjectionType.hxx>
 #include <XCAFDimTolObjects_DatumObject.hxx>
 #include <XCAFDimTolObjects_DimensionObject.hxx>
 #include <XCAFDimTolObjects_GeomToleranceObject.hxx>
@@ -144,6 +148,7 @@ typedef opencascade::handle<XCAFDoc_ShapeTool>  HandleXCAFDoc_ShapeTool;
 typedef opencascade::handle<XCAFDoc_ColorTool>  HandleXCAFDoc_ColorTool;
 typedef opencascade::handle<XCAFDoc_DimTolTool>          HandleXCAFDoc_DimTolTool;
 typedef opencascade::handle<XCAFDoc_ClippingPlaneTool>   HandleXCAFDoc_ClippingPlaneTool;
+typedef opencascade::handle<XCAFDoc_ViewTool>            HandleXCAFDoc_ViewTool;
 
 inline std::unique_ptr<Handle_TColgpHArray1OfPnt>
 new_HandleTColgpHArray1OfPnt_from_TColgpHArray1OfPnt(std::unique_ptr<TColgp_HArray1OfPnt> array) {
@@ -957,5 +962,80 @@ inline rust::String xcaf_clipping_plane_name(const HandleXCAFDoc_ClippingPlaneTo
 inline bool xcaf_clipping_plane_capping(const HandleXCAFDoc_ClippingPlaneTool &tool,
                                          const TDF_Label &label) {
   return tool->GetCapping(label);
+}
+
+// XCAF/XDE — ViewTool accessor
+inline std::unique_ptr<HandleXCAFDoc_ViewTool>
+xcaf_view_tool(const HandleTDocStd_Document &doc) {
+  return std::unique_ptr<HandleXCAFDoc_ViewTool>(
+      new HandleXCAFDoc_ViewTool(XCAFDoc_DocumentTool::ViewTool(doc->Main())));
+}
+
+// XCAF/XDE — ViewTool label enumeration
+inline std::unique_ptr<TDF_LabelSequence>
+xcaf_view_labels(const HandleXCAFDoc_ViewTool &tool) {
+  std::unique_ptr<TDF_LabelSequence> seq(new TDF_LabelSequence());
+  tool->GetViewLabels(*seq);
+  return seq;
+}
+
+// XCAF/XDE — ViewTool membership check
+inline bool xcaf_is_view(const HandleXCAFDoc_ViewTool &tool, const TDF_Label &label) {
+  return tool->IsView(label);
+}
+
+// XCAF/XDE — ViewTool reference queries (shapes, GDTs, clipping planes referenced by a view)
+inline std::unique_ptr<TDF_LabelSequence>
+xcaf_view_ref_shapes(const HandleXCAFDoc_ViewTool &tool, const TDF_Label &label) {
+  std::unique_ptr<TDF_LabelSequence> seq(new TDF_LabelSequence());
+  tool->GetRefShapeLabel(label, *seq);
+  return seq;
+}
+
+inline std::unique_ptr<TDF_LabelSequence>
+xcaf_view_ref_gdts(const HandleXCAFDoc_ViewTool &tool, const TDF_Label &label) {
+  std::unique_ptr<TDF_LabelSequence> seq(new TDF_LabelSequence());
+  tool->GetRefGDTLabel(label, *seq);
+  return seq;
+}
+
+inline std::unique_ptr<TDF_LabelSequence>
+xcaf_view_ref_clipping_planes(const HandleXCAFDoc_ViewTool &tool, const TDF_Label &label) {
+  std::unique_ptr<TDF_LabelSequence> seq(new TDF_LabelSequence());
+  tool->GetRefClippingPlaneLabel(label, *seq);
+  return seq;
+}
+
+// XCAF/XDE — View object extraction from a label
+// Returns a copy of the XCAFView_Object, or nullptr if the label has no view attribute.
+// XCAFView_Object has a copy-from-handle constructor so this is safe.
+inline std::unique_ptr<XCAFView_Object>
+xcaf_view_object(const TDF_Label &label) {
+  Handle(XCAFDoc_View) attr;
+  if (!label.FindAttribute(XCAFDoc_View::GetID(), attr) || attr->GetObject().IsNull())
+    return nullptr;
+  return std::unique_ptr<XCAFView_Object>(new XCAFView_Object(attr->GetObject()));
+}
+
+// XCAF/XDE — XCAFView_Object property accessors that need type adaptation
+// Scalar/enum methods (Type, ZoomFactor, etc.) are direct cxx method bindings in lib.rs.
+// Only wrappers needed here are for HAsciiString → rust::String and by-value gp_* returns.
+inline rust::String xcaf_view_name(XCAFView_Object &obj) {
+  Handle(TCollection_HAsciiString) name = obj.Name();
+  if (!name.IsNull() && !name->IsEmpty())
+    return rust::String(name->ToCString());
+  return rust::String("");
+}
+
+inline std::unique_ptr<gp_Pnt> xcaf_view_projection_point(XCAFView_Object &obj) {
+  return std::unique_ptr<gp_Pnt>(new gp_Pnt(obj.ProjectionPoint()));
+}
+
+inline std::unique_ptr<gp_Dir> xcaf_view_direction(XCAFView_Object &obj) {
+  return std::unique_ptr<gp_Dir>(new gp_Dir(obj.ViewDirection()));
+}
+
+inline std::unique_ptr<gp_Dir> xcaf_view_up_direction(XCAFView_Object &obj) {
+  return std::unique_ptr<gp_Dir>(new gp_Dir(obj.UpDirection()));
 }
 

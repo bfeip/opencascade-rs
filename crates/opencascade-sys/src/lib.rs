@@ -120,6 +120,14 @@ pub mod ffi {
         XCAFDimTolObjects_GeomToleranceType_TotalRunout,
     }
 
+    #[derive(Debug)]
+    #[repr(u32)]
+    pub enum XCAFView_ProjectionType {
+        XCAFView_ProjectionType_NoCamera,
+        XCAFView_ProjectionType_Parallel,
+        XCAFView_ProjectionType_Central,
+    }
+
     unsafe extern "C++" {
         // https://github.com/dtolnay/cxx/issues/280
 
@@ -1442,6 +1450,51 @@ pub mod ffi {
             tool: &HandleXCAFDoc_ClippingPlaneTool,
             label: &TDF_Label,
         ) -> bool;
+
+        // XCAF/XDE — ViewTool
+        type HandleXCAFDoc_ViewTool;
+        type XCAFView_Object;
+        type XCAFView_ProjectionType;
+
+        pub fn xcaf_view_tool(
+            doc: &HandleTDocStd_Document,
+        ) -> UniquePtr<HandleXCAFDoc_ViewTool>;
+        pub fn xcaf_view_labels(
+            tool: &HandleXCAFDoc_ViewTool,
+        ) -> UniquePtr<TDF_LabelSequence>;
+        pub fn xcaf_is_view(tool: &HandleXCAFDoc_ViewTool, label: &TDF_Label) -> bool;
+        pub fn xcaf_view_ref_shapes(
+            tool: &HandleXCAFDoc_ViewTool,
+            label: &TDF_Label,
+        ) -> UniquePtr<TDF_LabelSequence>;
+        pub fn xcaf_view_ref_gdts(
+            tool: &HandleXCAFDoc_ViewTool,
+            label: &TDF_Label,
+        ) -> UniquePtr<TDF_LabelSequence>;
+        pub fn xcaf_view_ref_clipping_planes(
+            tool: &HandleXCAFDoc_ViewTool,
+            label: &TDF_Label,
+        ) -> UniquePtr<TDF_LabelSequence>;
+
+        // Returns null UniquePtr if the label has no view object
+        pub fn xcaf_view_object(label: &TDF_Label) -> UniquePtr<XCAFView_Object>;
+
+        // XCAFView_Object — C++ wrappers for type-adapted returns (HAsciiString, by-value gp_*)
+        pub fn xcaf_view_name(obj: Pin<&mut XCAFView_Object>) -> String;
+        pub fn xcaf_view_projection_point(obj: Pin<&mut XCAFView_Object>) -> UniquePtr<gp_Pnt>;
+        pub fn xcaf_view_direction(obj: Pin<&mut XCAFView_Object>) -> UniquePtr<gp_Dir>;
+        pub fn xcaf_view_up_direction(obj: Pin<&mut XCAFView_Object>) -> UniquePtr<gp_Dir>;
+
+        // XCAFView_Object — direct method bindings (non-const in OCCT, so Pin<&mut>)
+        pub fn Type(self: Pin<&mut XCAFView_Object>) -> XCAFView_ProjectionType;
+        pub fn ZoomFactor(self: Pin<&mut XCAFView_Object>) -> f64;
+        pub fn WindowHorizontalSize(self: Pin<&mut XCAFView_Object>) -> f64;
+        pub fn WindowVerticalSize(self: Pin<&mut XCAFView_Object>) -> f64;
+        pub fn HasFrontPlaneClipping(self: Pin<&mut XCAFView_Object>) -> bool;
+        pub fn FrontPlaneDistance(self: Pin<&mut XCAFView_Object>) -> f64;
+        pub fn HasBackPlaneClipping(self: Pin<&mut XCAFView_Object>) -> bool;
+        pub fn BackPlaneDistance(self: Pin<&mut XCAFView_Object>) -> f64;
+        pub fn HasViewVolumeSidesClipping(self: Pin<&mut XCAFView_Object>) -> bool;
 
         type StlAPI_Writer;
 
