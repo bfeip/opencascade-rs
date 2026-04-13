@@ -67,6 +67,10 @@ impl XcafDocument {
     pub fn dim_tol_tool(&self) -> XcafDimTolTool {
         XcafDimTolTool { inner: ffi::xcaf_dimtol_tool(&self.inner) }
     }
+
+    pub fn clipping_plane_tool(&self) -> XcafClippingPlaneTool {
+        XcafClippingPlaneTool { inner: ffi::xcaf_clipping_plane_tool(&self.inner) }
+    }
 }
 
 impl Default for XcafDocument {
@@ -189,6 +193,59 @@ impl XcafDimTolTool {
         let len = ffi::xcaf_seq_len(&seq);
         XcafLabelIter { seq, len, next: 1 }
     }
+}
+
+/// Provides access to clipping planes stored in an [`XcafDocument`].
+pub struct XcafClippingPlaneTool {
+    inner: UniquePtr<ffi::HandleXCAFDoc_ClippingPlaneTool>,
+}
+
+impl XcafClippingPlaneTool {
+    /// Iterate over all clipping plane labels in the document.
+    pub fn clipping_plane_labels(&self) -> XcafLabelIter {
+        let seq = ffi::xcaf_clipping_plane_labels(&self.inner);
+        let len = ffi::xcaf_seq_len(&seq);
+        XcafLabelIter { seq, len, next: 1 }
+    }
+
+    /// Returns `true` if `label` is a clipping plane definition.
+    pub fn is_clipping_plane(&self, label: &XcafLabel) -> bool {
+        ffi::xcaf_is_clipping_plane(&self.inner, &label.inner)
+    }
+
+    /// Returns the data for a clipping plane label, or `None` if the label is invalid.
+    pub fn clipping_plane_data(&self, label: &XcafLabel) -> Option<ClippingPlaneData> {
+        let pln = ffi::xcaf_clipping_plane_pln(&self.inner, &label.inner);
+        if pln.is_null() {
+            return None;
+        }
+        let loc = pln.Location();
+        let norm = pln.Axis().Direction();
+        let name = {
+            let s = ffi::xcaf_clipping_plane_name(&self.inner, &label.inner);
+            if s.is_empty() { None } else { Some(s) }
+        };
+        let capping = ffi::xcaf_clipping_plane_capping(&self.inner, &label.inner);
+        Some(ClippingPlaneData {
+            origin: [loc.X(), loc.Y(), loc.Z()],
+            normal: [norm.X(), norm.Y(), norm.Z()],
+            name,
+            capping,
+        })
+    }
+}
+
+/// Data for a clipping plane stored in an [`XcafDocument`].
+#[derive(Debug)]
+pub struct ClippingPlaneData {
+    /// Plane origin in model space.
+    pub origin: [f64; 3],
+    /// Plane normal direction (unit vector).
+    pub normal: [f64; 3],
+    /// Display name, if any.
+    pub name: Option<String>,
+    /// Whether the cutting section is capped (filled).
+    pub capping: bool,
 }
 
 /// Semantic data for a dimension annotation.

@@ -1001,6 +1001,7 @@ pub mod ffi {
         type gp_Dir;
         type gp_Dir2d;
         type gp_Ax2d;
+        type gp_Pln;
         pub fn gp_OX() -> &'static gp_Ax1;
         pub fn gp_OY() -> &'static gp_Ax1;
         pub fn gp_OZ() -> &'static gp_Ax1;
@@ -1011,6 +1012,12 @@ pub mod ffi {
         pub fn X(self: &gp_Dir) -> f64;
         pub fn Y(self: &gp_Dir) -> f64;
         pub fn Z(self: &gp_Dir) -> f64;
+
+        pub fn Direction(self: &gp_Ax1) -> &gp_Dir;
+        pub fn Location(self: &gp_Ax1) -> &gp_Pnt;
+
+        pub fn Location(self: &gp_Pln) -> &gp_Pnt;
+        pub fn Axis(self: &gp_Pln) -> &gp_Ax1;
 
         #[cxx_name = "construct_unique"]
         pub fn gp_Ax1_ctor(origin: &gp_Pnt, main_dir: &gp_Dir) -> UniquePtr<gp_Ax1>;
@@ -1029,6 +1036,9 @@ pub mod ffi {
 
         #[cxx_name = "construct_unique"]
         pub fn gp_Ax2d_ctor(point: &gp_Pnt2d, dir: &gp_Dir2d) -> UniquePtr<gp_Ax2d>;
+
+        #[cxx_name = "construct_unique"]
+        pub fn gp_Pln_ctor(origin: &gp_Pnt, normal: &gp_Dir) -> UniquePtr<gp_Pln>;
 
         // Geometry Interpolation
         type GeomAPI_Interpolate;
@@ -1406,6 +1416,32 @@ pub mod ffi {
 
         pub fn xcaf_datum_name(label: &TDF_Label) -> String;
         pub fn xcaf_datum_semantic_name(label: &TDF_Label) -> String;
+
+        // XCAF/XDE — ClippingPlaneTool
+        type HandleXCAFDoc_ClippingPlaneTool;
+
+        pub fn xcaf_clipping_plane_tool(
+            doc: &HandleTDocStd_Document,
+        ) -> UniquePtr<HandleXCAFDoc_ClippingPlaneTool>;
+        pub fn xcaf_clipping_plane_labels(
+            tool: &HandleXCAFDoc_ClippingPlaneTool,
+        ) -> UniquePtr<TDF_LabelSequence>;
+        pub fn xcaf_is_clipping_plane(
+            tool: &HandleXCAFDoc_ClippingPlaneTool,
+            label: &TDF_Label,
+        ) -> bool;
+        pub fn xcaf_clipping_plane_pln(
+            tool: &HandleXCAFDoc_ClippingPlaneTool,
+            label: &TDF_Label,
+        ) -> UniquePtr<gp_Pln>;
+        pub fn xcaf_clipping_plane_name(
+            tool: &HandleXCAFDoc_ClippingPlaneTool,
+            label: &TDF_Label,
+        ) -> String;
+        pub fn xcaf_clipping_plane_capping(
+            tool: &HandleXCAFDoc_ClippingPlaneTool,
+            label: &TDF_Label,
+        ) -> bool;
 
         type StlAPI_Writer;
 

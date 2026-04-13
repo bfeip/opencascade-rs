@@ -92,6 +92,7 @@
 #include <XCAFDoc_DimTolTool.hxx>
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_GeomTolerance.hxx>
+#include <XCAFDoc_ClippingPlaneTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
 #include <XCAFDimTolObjects_DatumObject.hxx>
 #include <XCAFDimTolObjects_DimensionObject.hxx>
@@ -141,7 +142,8 @@ typedef opencascade::handle<TColgp_HArray1OfPnt> Handle_TColgpHArray1OfPnt;
 typedef opencascade::handle<TDocStd_Document>   HandleTDocStd_Document;
 typedef opencascade::handle<XCAFDoc_ShapeTool>  HandleXCAFDoc_ShapeTool;
 typedef opencascade::handle<XCAFDoc_ColorTool>  HandleXCAFDoc_ColorTool;
-typedef opencascade::handle<XCAFDoc_DimTolTool> HandleXCAFDoc_DimTolTool;
+typedef opencascade::handle<XCAFDoc_DimTolTool>          HandleXCAFDoc_DimTolTool;
+typedef opencascade::handle<XCAFDoc_ClippingPlaneTool>   HandleXCAFDoc_ClippingPlaneTool;
 
 inline std::unique_ptr<Handle_TColgpHArray1OfPnt>
 new_HandleTColgpHArray1OfPnt_from_TColgpHArray1OfPnt(std::unique_ptr<TColgp_HArray1OfPnt> array) {
@@ -290,6 +292,10 @@ inline std::unique_ptr<gp_Dir2d> gp_Dir2d_ctor(double x, double y) {
 
 inline std::unique_ptr<gp_Ax2d> gp_Ax2d_ctor(const gp_Pnt2d &point, const gp_Dir2d &dir) {
   return std::unique_ptr<gp_Ax2d>(new gp_Ax2d(point, dir));
+}
+
+inline std::unique_ptr<gp_Pln> gp_Pln_ctor(const gp_Pnt &origin, const gp_Dir &normal) {
+  return std::unique_ptr<gp_Pln>(new gp_Pln(origin, normal));
 }
 
 // Law_Function stuff
@@ -900,5 +906,56 @@ inline rust::String xcaf_datum_semantic_name(const TDF_Label &label) {
       return rust::String(name->ToCString());
   }
   return rust::String("");
+}
+
+// XCAF/XDE — ClippingPlaneTool accessor
+inline std::unique_ptr<HandleXCAFDoc_ClippingPlaneTool>
+xcaf_clipping_plane_tool(const HandleTDocStd_Document &doc) {
+  return std::unique_ptr<HandleXCAFDoc_ClippingPlaneTool>(
+      new HandleXCAFDoc_ClippingPlaneTool(XCAFDoc_DocumentTool::ClippingPlaneTool(doc->Main())));
+}
+
+// XCAF/XDE — ClippingPlaneTool label enumeration
+inline std::unique_ptr<TDF_LabelSequence>
+xcaf_clipping_plane_labels(const HandleXCAFDoc_ClippingPlaneTool &tool) {
+  std::unique_ptr<TDF_LabelSequence> seq(new TDF_LabelSequence());
+  tool->GetClippingPlanes(*seq);
+  return seq;
+}
+
+// XCAF/XDE — ClippingPlaneTool membership check
+inline bool xcaf_is_clipping_plane(const HandleXCAFDoc_ClippingPlaneTool &tool,
+                                    const TDF_Label &label) {
+  return tool->IsClippingPlane(label);
+}
+
+// XCAF/XDE — ClippingPlaneTool plane extraction
+// Returns nullptr if the label does not define a clipping plane.
+inline std::unique_ptr<gp_Pln>
+xcaf_clipping_plane_pln(const HandleXCAFDoc_ClippingPlaneTool &tool,
+                         const TDF_Label &label) {
+  gp_Pln plane;
+  Handle(TCollection_HAsciiString) name;
+  Standard_Boolean capping;
+  if (!tool->GetClippingPlane(label, plane, name, capping))
+    return nullptr;
+  return std::unique_ptr<gp_Pln>(new gp_Pln(plane));
+}
+
+// XCAF/XDE — ClippingPlaneTool name
+inline rust::String xcaf_clipping_plane_name(const HandleXCAFDoc_ClippingPlaneTool &tool,
+                                              const TDF_Label &label) {
+  gp_Pln plane;
+  Handle(TCollection_HAsciiString) name;
+  Standard_Boolean capping;
+  if (tool->GetClippingPlane(label, plane, name, capping) && !name.IsNull() && !name->IsEmpty())
+    return rust::String(name->ToCString());
+  return rust::String("");
+}
+
+// XCAF/XDE — ClippingPlaneTool capping flag
+inline bool xcaf_clipping_plane_capping(const HandleXCAFDoc_ClippingPlaneTool &tool,
+                                         const TDF_Label &label) {
+  return tool->GetCapping(label);
 }
 
