@@ -1338,6 +1338,14 @@ pub mod ffi {
             reader: Pin<&mut IGESCAFControl_Reader>,
             doc: Pin<&mut HandleTDocStd_Document>,
         ) -> bool;
+        pub fn xcaf_step_read_str(
+            reader: Pin<&mut STEPCAFControl_Reader>,
+            str: &str,
+        ) -> IFSelect_ReturnStatus;
+        pub fn xcaf_iges_read_str(
+            reader: Pin<&mut IGESCAFControl_Reader>,
+            str: &str,
+        ) -> IFSelect_ReturnStatus;
 
         // XCAF/XDE — document, tools, and label types
         type HandleTDocStd_Document;

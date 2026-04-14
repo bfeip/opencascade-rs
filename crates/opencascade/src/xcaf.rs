@@ -37,6 +37,40 @@ impl XcafDocument {
         Ok(doc)
     }
 
+    /// Read STEP data from a string with full metadata (names, colors, layers).
+    pub fn read_step_from_str(s: &str) -> Result<Self, Error> {
+        let mut doc = Self::new();
+        let mut reader = ffi::new_STEPCAFControl_Reader();
+        reader.pin_mut().SetColorMode(true);
+        reader.pin_mut().SetNameMode(true);
+        reader.pin_mut().SetLayerMode(true);
+        reader.pin_mut().SetGDTMode(true);
+        let status = ffi::xcaf_step_read_str(reader.pin_mut(), s);
+        if status != ffi::IFSelect_ReturnStatus::IFSelect_RetDone {
+            return Err(Error::StepReadFailed);
+        }
+        if !ffi::xcaf_step_transfer(reader.pin_mut(), doc.inner.pin_mut()) {
+            return Err(Error::StepReadFailed);
+        }
+        Ok(doc)
+    }
+
+    /// Read IGES data from a string with full metadata (names, colors).
+    pub fn read_iges_from_str(s: &str) -> Result<Self, Error> {
+        let mut doc = Self::new();
+        let mut reader = ffi::new_IGESCAFControl_Reader();
+        reader.pin_mut().SetColorMode(true);
+        reader.pin_mut().SetNameMode(true);
+        let status = ffi::xcaf_iges_read_str(reader.pin_mut(), s);
+        if status != ffi::IFSelect_ReturnStatus::IFSelect_RetDone {
+            return Err(Error::IgesReadFailed);
+        }
+        if !ffi::xcaf_iges_transfer(reader.pin_mut(), doc.inner.pin_mut()) {
+            return Err(Error::IgesReadFailed);
+        }
+        Ok(doc)
+    }
+
     /// Read an IGES file with full metadata (names, colors).
     pub fn read_iges(path: impl AsRef<Path>) -> Result<Self, Error> {
         let mut doc = Self::new();

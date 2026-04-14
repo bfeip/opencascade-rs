@@ -662,6 +662,18 @@ inline bool xcaf_iges_transfer(IGESCAFControl_Reader &reader, HandleTDocStd_Docu
   return reader.Transfer(doc, Message_ProgressRange());
 }
 
+inline IFSelect_ReturnStatus xcaf_step_read_str(STEPCAFControl_Reader &reader,
+                                                 rust::Str str) {
+  std::istringstream stream(std::string(str.data(), str.size()));
+  return reader.ReadStream("memory", stream);
+}
+
+inline IFSelect_ReturnStatus xcaf_iges_read_str(IGESCAFControl_Reader &reader,
+                                                 rust::Str str) {
+  std::istringstream stream(std::string(str.data(), str.size()));
+  return reader.ReadStream("memory", stream);
+}
+
 // XCAF/XDE — document lifecycle
 inline std::unique_ptr<HandleTDocStd_Document> xcaf_new_document() {
   Handle(XCAFApp_Application) app = XCAFApp_Application::GetApplication();
