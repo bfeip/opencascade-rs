@@ -1,5 +1,5 @@
 use crate::{
-    mesh::{Mesh, Mesher},
+    mesh::{FaceRange, Mesh, Mesher},
     primitives::{
         make_axis_1, make_axis_2, make_dir, make_point, make_point2d, make_vec, BooleanShape,
         Compound, Edge, EdgeIterator, Face, FaceIterator, ShapeType, Shell, Solid, SubShapeIterator,
@@ -756,6 +756,17 @@ impl Shape {
     pub fn mesh_with_tolerance(&self, triangulation_tolerance: f64) -> Result<Mesh, Error> {
         let mesher = Mesher::try_new(self, triangulation_tolerance)?;
         mesher.mesh()
+    }
+
+    /// Tessellates the shape and returns both the flat mesh and per-face index ranges.
+    ///
+    /// Each [`FaceRange`] records the start triangle and count for one B-Rep face.
+    pub fn mesh_with_tolerance_and_ranges(
+        &self,
+        triangulation_tolerance: f64,
+    ) -> Result<(Mesh, Vec<FaceRange>), Error> {
+        let mesher = Mesher::try_new(self, triangulation_tolerance)?;
+        mesher.mesh_with_face_ranges()
     }
 
     pub fn edges(&self) -> EdgeIterator {

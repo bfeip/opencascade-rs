@@ -6,6 +6,18 @@ use cxx::UniquePtr;
 use glam::{dvec2, dvec3, DVec2, DVec3};
 use opencascade_sys::ffi;
 
+/// Triangle index range for a single B-Rep face within a tessellated mesh.
+///
+/// `start` and `count` are in triangles (not raw indices). Multiply by 3 to
+/// get the raw index offset into `Mesh::indices`.
+#[derive(Debug, Clone, Copy)]
+pub struct FaceRange {
+    /// First triangle index belonging to this face.
+    pub start: u32,
+    /// Number of triangles belonging to this face.
+    pub count: u32,
+}
+
 #[derive(Debug)]
 pub struct Mesh {
     pub vertices: Vec<DVec3>,
@@ -29,15 +41,27 @@ impl Mesher {
         }
     }
 
-    pub fn mesh(mut self) -> Result<Mesh, Error> {
+    pub fn mesh(self) -> Result<Mesh, Error> {
+        let (mesh, _) = self.mesh_with_face_ranges()?;
+        Ok(mesh)
+    }
+
+    /// Tessellates the shape and returns the flat mesh alongside per-face index ranges.
+    ///
+    /// Each [`FaceRange`] records the start triangle and count for one B-Rep face within
+    /// the flat `Mesh::indices` list (units: triangles, not raw indices).
+    pub fn mesh_with_face_ranges(mut self) -> Result<(Mesh, Vec<FaceRange>), Error> {
         let mut vertices = vec![];
         let mut uvs = vec![];
         let mut normals = vec![];
         let mut indices = vec![];
+        let mut face_ranges: Vec<FaceRange> = vec![];
 
         let triangulated_shape = Shape::from_shape(self.inner.pin_mut().Shape());
 
         for face in triangulated_shape.faces() {
+            let tri_start = (indices.len() / 3) as u32;
+
             let mut location = ffi::TopLoc_Location_ctor();
 
             let triangulation_handle =
@@ -129,8 +153,11 @@ impl Mesher {
                     indices.push(index_offset + triangle.Value(1) as usize - 1);
                 }
             }
+
+            let tri_count = (indices.len() / 3) as u32 - tri_start;
+            face_ranges.push(FaceRange { start: tri_start, count: tri_count });
         }
 
-        Ok(Mesh { vertices, uvs, normals, indices })
+        Ok((Mesh { vertices, uvs, normals, indices }, face_ranges))
     }
 }
