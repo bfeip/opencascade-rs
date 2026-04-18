@@ -366,12 +366,23 @@ impl XcafViewTool {
     }
 }
 
+/// The projection type of an XCAF view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewProjection {
+    /// No camera is associated with this view.
+    NoCamera,
+    /// Parallel / orthographic projection.
+    Parallel,
+    /// Central / perspective projection.
+    Perspective,
+}
+
 /// Camera and window data for a view stored in an [`XcafDocument`].
 #[derive(Debug)]
 pub struct ViewData {
     /// Display name, if any.
     pub name: Option<String>,
-    /// Projection type (parallel or central/perspective).
+    /// Projection type (parallel, perspective, or none).
     pub projection_type: ffi::XCAFView_ProjectionType,
     /// Camera/eye position in model space.
     pub projection_point: [f64; 3],
@@ -391,6 +402,17 @@ pub struct ViewData {
     pub back_plane_distance: Option<f64>,
     /// Whether view-volume sides clipping is active.
     pub has_view_volume_sides_clipping: bool,
+}
+
+impl ViewData {
+    /// Returns the projection type for this view.
+    pub fn projection(&self) -> ViewProjection {
+        match self.projection_type {
+            ffi::XCAFView_ProjectionType::XCAFView_ProjectionType_Parallel => ViewProjection::Parallel,
+            ffi::XCAFView_ProjectionType::XCAFView_ProjectionType_Central => ViewProjection::Perspective,
+            _ => ViewProjection::NoCamera,
+        }
+    }
 }
 
 /// Semantic data for a dimension annotation.
