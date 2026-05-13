@@ -40,8 +40,9 @@ fn main() {
     let target = std::env::var("TARGET").expect("No TARGET environment variable defined");
     let is_windows = target.to_lowercase().contains("windows");
     let is_windows_gnu = target.to_lowercase().contains("windows-gnu");
+    let is_emscripten = target.contains("emscripten");
 
-    let occt_config = OcctConfig::detect();
+    let occt_config = OcctConfig::detect(&target);
 
     println!("cargo:rustc-link-search=native={}", occt_config.library_dir.to_str().unwrap());
 
@@ -65,6 +66,13 @@ fn main() {
         build.include(current.parent().unwrap());
     }
 
+    if is_emscripten {
+        // cc-rs adds -fno-exceptions for Emscripten by default. -fexceptions re-enables them,
+        // then -fwasm-exceptions switches to WASM native exception mode. Both flags are needed
+        // because -fwasm-exceptions alone does not override a preceding -fno-exceptions.
+        build.flag("-fexceptions").flag("-fwasm-exceptions");
+    }
+
     build
         .cpp(true)
         .flag_if_supported("-std=c++11")
@@ -86,14 +94,73 @@ struct OcctConfig {
 }
 
 impl OcctConfig {
-    /// Find OpenCASCADE library using cmake
-    fn detect() -> Self {
-        println!("cargo:rerun-if-env-changed=DEP_OCCT_ROOT");
+    fn detect(target: &str) -> Self {
+        if target.contains("emscripten") {
+            Self::for_emscripten()
+        } else {
+            Self::for_native()
+        }
+    }
 
-        // Add path to builtin OCCT
+    /// Locate OCCT for `wasm32-unknown-emscripten`.
+    ///
+    /// Resolution order:
+    ///
+    /// 1. `OCCT_EMSCRIPTEN_ROOT` — path to a pre-built Emscripten OCCT install. Use this to
+    ///    skip a long cmake build (e.g. in CI with a cached artifact).
+    ///
+    /// 2. `builtin` feature — builds OCCT from source via the Emscripten cmake toolchain,
+    ///    found at `$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake`.
+    ///    Requires `EMSDK` to be set in the environment.
+    fn for_emscripten() -> Self {
+        println!("cargo:rerun-if-env-changed=OCCT_EMSCRIPTEN_ROOT");
+
+        if let Ok(root) = std::env::var("OCCT_EMSCRIPTEN_ROOT") {
+            return Self::from_install_root(std::path::PathBuf::from(root), false);
+        }
+
         #[cfg(feature = "builtin")]
         {
-            occt_sys::build_occt();
+            let emsdk = std::env::var("EMSDK").expect(
+                "EMSDK must be set to use the `builtin` feature when targeting wasm32-unknown-emscripten"
+            );
+            let toolchain = std::path::PathBuf::from(&emsdk)
+                .join("upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake");
+            if !toolchain.exists() {
+                panic!(
+                    "Emscripten cmake toolchain not found at {}.\n\
+                     Ensure EMSDK points to a valid emsdk installation (run emsdk_env.sh first).",
+                    toolchain.display()
+                );
+            }
+            occt_sys::build_occt(Some(&toolchain));
+            return Self::from_install_root(occt_sys::occt_emscripten_path(), false);
+        }
+
+        #[cfg(not(feature = "builtin"))]
+        panic!(
+            "OCCT_EMSCRIPTEN_ROOT must be set when targeting wasm32-unknown-emscripten.\n\
+             Build OCCT with Emscripten (emcmake cmake ... && emmake make install) and set\n\
+             OCCT_EMSCRIPTEN_ROOT to the install prefix.\n\
+             Alternatively, enable the `builtin` feature with EMSDK set in the environment."
+        );
+    }
+
+    /// Locate a native OCCT installation via cmake's `find_package(OpenCASCADE)`.
+    ///
+    /// Resolution order:
+    ///
+    /// 1. `builtin` feature — builds OCCT from source inside cargo.
+    ///
+    /// 2. `DEP_OCCT_ROOT` — cmake prefix-path hint pointing to a pre-installed OCCT.
+    ///
+    /// 3. System-wide OCCT discovered by cmake automatically.
+    fn for_native() -> Self {
+        println!("cargo:rerun-if-env-changed=DEP_OCCT_ROOT");
+
+        #[cfg(feature = "builtin")]
+        {
+            occt_sys::build_occt(None);
             std::env::set_var("DEP_OCCT_ROOT", occt_sys::occt_path().as_os_str());
         }
 
@@ -145,5 +212,16 @@ impl OcctConfig {
         } else {
             panic!("OpenCASCADE library found but something wrong with config.");
         }
+    }
+
+    /// Construct an `OcctConfig` from a known install root.
+    ///
+    /// Handles both flat (`include/`) and nested (`include/opencascade/`) header layouts.
+    fn from_install_root(root: std::path::PathBuf, is_dynamic: bool) -> Self {
+        let include_dir = {
+            let nested = root.join("include").join("opencascade");
+            if nested.exists() { nested } else { root.join("include") }
+        };
+        Self { include_dir, library_dir: root.join("lib"), is_dynamic }
     }
 }
