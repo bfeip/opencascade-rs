@@ -274,6 +274,14 @@ impl TorusBuilder {
     }
 }
 
+impl Clone for Shape {
+    /// OCCT shapes share underlying B-Rep data via reference counting, so cloning is cheap.
+    /// I.e. this is shallow copy.
+    fn clone(&self) -> Self {
+        Self::from_shape(&self.inner)
+    }
+}
+
 impl Shape {
     pub(crate) fn from_shape(shape: &ffi::TopoDS_Shape) -> Self {
         let inner = ffi::TopoDS_Shape_to_owned(shape);
