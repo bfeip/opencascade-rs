@@ -44,8 +44,8 @@ mod test {
 
     #[test]
     fn section_new() {
-        let a = Workplane::xy().rect(1.0, 1.0).to_face();
-        let b = Workplane::yz().rect(1.0, 1.0).to_face();
+        let a = Workplane::xy().rect(1.0, 1.0).to_face().unwrap();
+        let b = Workplane::yz().rect(1.0, 1.0).to_face().unwrap();
 
         let s = Section::new(&a.into_shape(), &b.into_shape());
 

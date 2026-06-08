@@ -194,20 +194,20 @@ impl Workplane {
         let p3 = self.to_world_pos(dvec3(half_width, -half_height, 0.0));
         let p4 = self.to_world_pos(dvec3(-half_width, -half_height, 0.0));
 
-        let top = Edge::segment(p1, p2);
-        let right = Edge::segment(p2, p3);
-        let bottom = Edge::segment(p3, p4);
-        let left = Edge::segment(p4, p1);
+        let top = Edge::segment(p1, p2).unwrap();
+        let right = Edge::segment(p2, p3).unwrap();
+        let bottom = Edge::segment(p3, p4).unwrap();
+        let left = Edge::segment(p4, p1).unwrap();
 
-        Wire::from_edges([&top, &right, &bottom, &left])
+        Wire::from_edges([&top, &right, &bottom, &left]).unwrap()
     }
 
     pub fn circle(&self, x: f64, y: f64, radius: f64) -> Wire {
         let center = self.to_world_pos(dvec3(x, y, 0.0));
 
-        let circle = Edge::circle(center, self.normal(), radius);
+        let circle = Edge::circle(center, self.normal(), radius).unwrap();
 
-        Wire::from_edges([&circle])
+        Wire::from_edges([&circle]).unwrap()
     }
 
     pub fn sketch(&self) -> Sketch {
@@ -243,7 +243,7 @@ impl Sketch {
 
     pub fn line_to(mut self, x: f64, y: f64) -> Self {
         let new_point = self.workplane.to_world_pos(dvec3(x, y, 0.0));
-        let new_edge = Edge::segment(self.cursor, new_point);
+        let new_edge = Edge::segment(self.cursor, new_point).unwrap();
         self.cursor = new_point;
 
         self.add_edge(new_edge);
@@ -254,7 +254,7 @@ impl Sketch {
     pub fn line_dx(mut self, dx: f64) -> Self {
         let cursor = self.workplane.to_local_pos(self.cursor);
         let new_point = self.workplane.to_world_pos(dvec3(cursor.x + dx, cursor.y, 0.0));
-        let new_edge = Edge::segment(self.cursor, new_point);
+        let new_edge = Edge::segment(self.cursor, new_point).unwrap();
         self.cursor = new_point;
 
         self.add_edge(new_edge);
@@ -265,7 +265,7 @@ impl Sketch {
     pub fn line_dy(mut self, dy: f64) -> Self {
         let cursor = self.workplane.to_local_pos(self.cursor);
         let new_point = self.workplane.to_world_pos(dvec3(cursor.x, cursor.y + dy, 0.0));
-        let new_edge = Edge::segment(self.cursor, new_point);
+        let new_edge = Edge::segment(self.cursor, new_point).unwrap();
         self.cursor = new_point;
 
         self.add_edge(new_edge);
@@ -276,7 +276,7 @@ impl Sketch {
     pub fn line_dx_dy(mut self, dx: f64, dy: f64) -> Self {
         let cursor = self.workplane.to_local_pos(self.cursor);
         let new_point = self.workplane.to_world_pos(dvec3(cursor.x + dx, cursor.y + dy, 0.0));
-        let new_edge = Edge::segment(self.cursor, new_point);
+        let new_edge = Edge::segment(self.cursor, new_point).unwrap();
         self.cursor = new_point;
 
         self.add_edge(new_edge);
@@ -289,7 +289,7 @@ impl Sketch {
         let p2 = self.workplane.to_world_pos(dvec3(x2, y2, 0.0));
         let p3 = self.workplane.to_world_pos(dvec3(x3, y3, 0.0));
 
-        let new_arc = Edge::arc(p1, p2, p3);
+        let new_arc = Edge::arc(p1, p2, p3).unwrap();
 
         self.cursor = p3;
 
@@ -304,14 +304,14 @@ impl Sketch {
     }
 
     pub fn wire(self) -> Wire {
-        Wire::from_edges(&self.edges)
+        Wire::from_edges(&self.edges).unwrap()
     }
 
     pub fn close(mut self) -> Wire {
         let start_point = self.first_point.unwrap();
 
-        let new_edge = Edge::segment(self.cursor, start_point);
+        let new_edge = Edge::segment(self.cursor, start_point).unwrap();
         self.add_edge(new_edge);
-        Wire::from_edges(&self.edges)
+        Wire::from_edges(&self.edges).unwrap()
     }
 }

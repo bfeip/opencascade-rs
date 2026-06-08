@@ -44,8 +44,14 @@ impl Wire {
         Self { inner }
     }
 
-    fn from_make_wire(mut make_wire: UniquePtr<ffi::BRepBuilderAPI_MakeWire>) -> Self {
-        Self::from_wire(make_wire.pin_mut().Wire())
+    fn from_make_wire(
+        mut make_wire: UniquePtr<ffi::BRepBuilderAPI_MakeWire>,
+    ) -> Result<Self, Error> {
+        if !make_wire.IsDone() {
+            return Err(Error::WireFailed(make_wire.Error().into()));
+        }
+
+        Ok(Self::from_wire(make_wire.pin_mut().Wire()))
     }
 
     pub fn from_ordered_points(points: impl IntoIterator<Item = DVec3>) -> Result<Self, Error> {
@@ -58,18 +64,18 @@ impl Wire {
         let mut make_wire = ffi::BRepBuilderAPI_MakeWire_ctor();
 
         if points.len() == 2 {
-            make_wire.pin_mut().add_edge(&Edge::segment(*first, *last).inner);
+            make_wire.pin_mut().add_edge(&Edge::segment(*first, *last)?.inner);
         } else {
             for window in points.windows(2).chain(once([*last, *first].as_slice())) {
-                let edge = Edge::segment(window[0], window[1]);
+                let edge = Edge::segment(window[0], window[1])?;
                 make_wire.pin_mut().add_edge(&edge.inner);
             }
         }
 
-        Ok(Self::from_make_wire(make_wire))
+        Self::from_make_wire(make_wire)
     }
 
-    pub fn from_edges<'a>(edges: impl IntoIterator<Item = &'a Edge>) -> Self {
+    pub fn from_edges<'a>(edges: impl IntoIterator<Item = &'a Edge>) -> Result<Self, Error> {
         let mut make_wire = ffi::BRepBuilderAPI_MakeWire_ctor();
 
         for edge in edges.into_iter() {
@@ -82,7 +88,7 @@ impl Wire {
     pub fn from_unordered_edges<T: AsRef<Edge>>(
         unordered_edges: impl IntoIterator<Item = T>,
         edge_connection: EdgeConnection,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let mut edges = ffi::new_HandleTopTools_HSequenceOfShape();
 
         for edge in unordered_edges {
@@ -113,7 +119,7 @@ impl Wire {
         Self::from_make_wire(make_wire)
     }
 
-    pub fn from_wires<'a>(wires: impl IntoIterator<Item = &'a Wire>) -> Self {
+    pub fn from_wires<'a>(wires: impl IntoIterator<Item = &'a Wire>) -> Result<Self, Error> {
         let mut make_wire = ffi::BRepBuilderAPI_MakeWire_ctor();
 
         for wire in wires.into_iter() {
@@ -142,7 +148,7 @@ impl Wire {
         Self::from_wire(mirrored_wire)
     }
 
-    pub fn rect(width: f64, height: f64) -> Self {
+    pub fn rect(width: f64, height: f64) -> Result<Self, Error> {
         let half_width = width / 2.0;
         let half_height = height / 2.0;
 
@@ -151,30 +157,30 @@ impl Wire {
         let p3 = dvec3(half_width, -half_height, 0.0);
         let p4 = dvec3(-half_width, -half_height, 0.0);
 
-        let top = Edge::segment(p1, p2);
-        let right = Edge::segment(p2, p3);
-        let bottom = Edge::segment(p3, p4);
-        let left = Edge::segment(p4, p1);
+        let top = Edge::segment(p1, p2)?;
+        let right = Edge::segment(p2, p3)?;
+        let bottom = Edge::segment(p3, p4)?;
+        let left = Edge::segment(p4, p1)?;
 
         Self::from_edges([&top, &right, &bottom, &left])
     }
 
     #[must_use]
-    pub fn fillet(&self, radius: f64) -> Wire {
+    pub fn fillet(&self, radius: f64) -> Result<Wire, Error> {
         // Create a face from this wire
-        let face = Face::from_wire(self).fillet(radius);
+        let face = Face::from_wire(self)?.fillet(radius);
         let inner = ffi::outer_wire(&face.inner);
 
-        Self { inner }
+        Ok(Self { inner })
     }
 
     /// Chamfer the wire edges at each vertex by a given distance.
     #[must_use]
-    pub fn chamfer(&self, distance_1: f64) -> Wire {
-        let face = Face::from_wire(self).chamfer(distance_1);
+    pub fn chamfer(&self, distance_1: f64) -> Result<Wire, Error> {
+        let face = Face::from_wire(self)?.chamfer(distance_1);
         let inner = ffi::outer_wire(&face.inner);
 
-        Self { inner }
+        Ok(Self { inner })
     }
 
     /// Offset the wire by a given distance and join settings
@@ -247,11 +253,8 @@ impl Wire {
         Self::from_wire(translated_wire)
     }
 
-    pub fn to_face(self) -> Face {
-        let only_plane = false;
-        let make_face = ffi::BRepBuilderAPI_MakeFace_wire(&self.inner, only_plane);
-
-        Face::from_face(make_face.Face())
+    pub fn to_face(self) -> Result<Face, Error> {
+        Face::from_wire(&self)
     }
 
     // Create a closure-based API
@@ -279,7 +282,7 @@ impl WireBuilder {
         self.inner.pin_mut().add_edge(&edge.inner);
     }
 
-    pub fn build(self) -> Wire {
+    pub fn build(self) -> Result<Wire, Error> {
         Wire::from_make_wire(self.inner)
     }
 }

@@ -1,4 +1,5 @@
 use crate::primitives::{make_axis_2, make_point};
+use crate::Error;
 use cxx::UniquePtr;
 use glam::{dvec3, DVec3};
 use opencascade_sys::ffi;
@@ -52,18 +53,25 @@ impl Edge {
         Self { inner }
     }
 
-    fn from_make_edge(mut make_edge: UniquePtr<ffi::BRepBuilderAPI_MakeEdge>) -> Self {
-        Self::from_edge(make_edge.pin_mut().Edge())
+    fn from_make_edge(
+        mut make_edge: UniquePtr<ffi::BRepBuilderAPI_MakeEdge>,
+    ) -> Result<Self, Error> {
+        if !make_edge.IsDone() {
+            return Err(Error::EdgeFailed(make_edge.Error().into()));
+        }
+
+        let make_edge_pin = make_edge.pin_mut();
+        Ok(Self::from_edge(make_edge_pin.Edge()))
     }
 
-    pub fn segment(p1: DVec3, p2: DVec3) -> Self {
+    pub fn segment(p1: DVec3, p2: DVec3) -> Result<Self, Error> {
         let make_edge =
             ffi::BRepBuilderAPI_MakeEdge_gp_Pnt_gp_Pnt(&make_point(p1), &make_point(p2));
 
         Self::from_make_edge(make_edge)
     }
 
-    pub fn bezier(points: impl IntoIterator<Item = DVec3>) -> Self {
+    pub fn bezier(points: impl IntoIterator<Item = DVec3>) -> Result<Self, Error> {
         let points: Vec<_> = points.into_iter().collect();
         let mut array = ffi::TColgp_HArray1OfPnt_ctor(1, points.len() as i32);
         for (index, point) in points.into_iter().enumerate() {
@@ -74,12 +82,11 @@ impl Edge {
         let bezier_handle = ffi::Geom_BezierCurve_to_handle(bezier);
         let curve_handle = ffi::new_HandleGeomCurve_from_HandleGeom_BezierCurve(&bezier_handle);
 
-        let mut make_edge = ffi::BRepBuilderAPI_MakeEdge_HandleGeomCurve(&curve_handle);
-        let edge = make_edge.pin_mut().Edge();
-        Self::from_edge(edge)
+        let make_edge = ffi::BRepBuilderAPI_MakeEdge_HandleGeomCurve(&curve_handle);
+        Self::from_make_edge(make_edge)
     }
 
-    pub fn circle(center: DVec3, normal: DVec3, radius: f64) -> Self {
+    pub fn circle(center: DVec3, normal: DVec3, radius: f64) -> Result<Self, Error> {
         let axis = make_axis_2(center, normal);
 
         let make_circle = ffi::gp_Circ_ctor(&axis, radius);
@@ -93,7 +100,7 @@ impl Edge {
     pub fn spline_from_points(
         points: impl IntoIterator<Item = DVec3>,
         tangents: Option<(DVec3, DVec3)>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let points: Vec<_> = points.into_iter().collect();
         let mut array = ffi::TColgp_HArray1OfPnt_ctor(1, points.len() as i32);
         for (index, point) in points.into_iter().enumerate() {
@@ -112,12 +119,11 @@ impl Edge {
         let bspline_handle = ffi::GeomAPI_Interpolate_Curve(&interpolate);
         let curve_handle = ffi::new_HandleGeomCurve_from_HandleGeom_BSplineCurve(&bspline_handle);
 
-        let mut make_edge = ffi::BRepBuilderAPI_MakeEdge_HandleGeomCurve(&curve_handle);
-        let edge = make_edge.pin_mut().Edge();
-        Self::from_edge(edge)
+        let make_edge = ffi::BRepBuilderAPI_MakeEdge_HandleGeomCurve(&curve_handle);
+        Self::from_make_edge(make_edge)
     }
 
-    pub fn arc(p1: DVec3, p2: DVec3, p3: DVec3) -> Self {
+    pub fn arc(p1: DVec3, p2: DVec3, p3: DVec3) -> Result<Self, Error> {
         let make_arc = ffi::GC_MakeArcOfCircle_point_point_point(
             &make_point(p1),
             &make_point(p2),
@@ -183,5 +189,24 @@ impl Iterator for ApproximationSegmentIterator {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::EdgeError;
+
+    #[test]
+    fn segment_with_identical_points_reports_error() {
+        // A zero-length segment cannot form a valid edge; the builder should
+        // surface the specific OCCT error rather than yielding a broken edge.
+        let point = dvec3(1.0, 2.0, 3.0);
+        let result = Edge::segment(point, point);
+
+        assert!(matches!(
+            result,
+            Err(Error::EdgeFailed(EdgeError::LineThroughIdenticalPoints))
+        ));
     }
 }

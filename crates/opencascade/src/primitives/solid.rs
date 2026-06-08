@@ -127,6 +127,6 @@ impl Solid {
         h: f64,
     ) -> Result<Solid, Error> {
         let wire = Wire::from_ordered_points(points)?;
-        Ok(Face::from_wire(&wire).extrude(dvec3(0.0, 0.0, h)))
+        Ok(Face::from_wire(&wire)?.extrude(dvec3(0.0, 0.0, h)))
     }
 }

@@ -6,6 +6,7 @@ use crate::{
         make_axis_1, make_point, make_vec, EdgeIterator, JoinType, Shape, Solid, Surface, Wire,
     },
     workplane::Workplane,
+    Error,
 };
 use cxx::UniquePtr;
 use glam::{dvec3, DVec3};
@@ -28,18 +29,22 @@ impl Face {
         Self { inner }
     }
 
-    fn from_make_face(make_face: UniquePtr<ffi::BRepBuilderAPI_MakeFace>) -> Self {
-        Self::from_face(make_face.Face())
+    fn from_make_face(make_face: UniquePtr<ffi::BRepBuilderAPI_MakeFace>) -> Result<Self, Error> {
+        if !make_face.IsDone() {
+            return Err(Error::FaceFailed(make_face.Error().into()));
+        }
+
+        Ok(Self::from_face(make_face.Face()))
     }
 
-    pub fn from_wire(wire: &Wire) -> Self {
+    pub fn from_wire(wire: &Wire) -> Result<Self, Error> {
         let only_plane = false;
         let make_face = ffi::BRepBuilderAPI_MakeFace_wire(&wire.inner, only_plane);
 
         Self::from_make_face(make_face)
     }
 
-    pub fn from_surface(surface: &Surface) -> Self {
+    pub fn from_surface(surface: &Surface) -> Result<Self, Error> {
         const EDGE_TOLERANCE: f64 = 0.0001;
 
         let make_face = ffi::BRepBuilderAPI_MakeFace_surface(&surface.inner, EDGE_TOLERANCE);
@@ -200,7 +205,7 @@ impl Face {
         let result_wire = ffi::TopoDS_cast_to_wire(offset_shape);
         let wire = Wire::from_wire(result_wire);
 
-        wire.to_face()
+        wire.to_face().unwrap()
     }
 
     /// Sweep the face along a path to produce a solid
@@ -511,7 +516,7 @@ mod tests {
 
     #[test]
     fn test_add() {
-        let face = Workplane::xy().rect(7.0, 5.0).to_face();
+        let face = Workplane::xy().rect(7.0, 5.0).to_face().unwrap();
         assert!(
             (face.surface_area() - 35.0).abs() <= 0.00001,
             "Expected surface_area() to be ~35.0, was actually {}",

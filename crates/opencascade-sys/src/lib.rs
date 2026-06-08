@@ -34,6 +34,37 @@ pub mod ffi {
 
     #[derive(Debug)]
     #[repr(u32)]
+    pub enum BRepBuilderAPI_EdgeError {
+        BRepBuilderAPI_EdgeDone,
+        BRepBuilderAPI_PointProjectionFailed,
+        BRepBuilderAPI_ParameterOutOfRange,
+        BRepBuilderAPI_DifferentPointsOnClosedCurve,
+        BRepBuilderAPI_PointWithInfiniteParameter,
+        BRepBuilderAPI_DifferentsPointAndParameter,
+        BRepBuilderAPI_LineThroughIdenticPoints,
+    }
+
+    #[derive(Debug)]
+    #[repr(u32)]
+    pub enum BRepBuilderAPI_WireError {
+        BRepBuilderAPI_WireDone,
+        BRepBuilderAPI_EmptyWire,
+        BRepBuilderAPI_DisconnectedWire,
+        BRepBuilderAPI_NonManifoldWire,
+    }
+
+    #[derive(Debug)]
+    #[repr(u32)]
+    pub enum BRepBuilderAPI_FaceError {
+        BRepBuilderAPI_FaceDone,
+        BRepBuilderAPI_NoFace,
+        BRepBuilderAPI_NotPlanar,
+        BRepBuilderAPI_CurveProjectionFailed,
+        BRepBuilderAPI_ParametersOutOfRange,
+    }
+
+    #[derive(Debug)]
+    #[repr(u32)]
     pub enum BOPAlgo_GlueEnum {
         BOPAlgo_GlueOff,
         BOPAlgo_GlueShift,
@@ -545,6 +576,10 @@ pub mod ffi {
         type BRep_Builder;
         type TopoDS_Builder;
 
+        type BRepBuilderAPI_EdgeError;
+        type BRepBuilderAPI_WireError;
+        type BRepBuilderAPI_FaceError;
+
         #[cxx_name = "construct_unique"]
         pub fn TopoDS_Compound_ctor() -> UniquePtr<TopoDS_Compound>;
 
@@ -596,6 +631,7 @@ pub mod ffi {
         pub fn Edge(self: Pin<&mut BRepBuilderAPI_MakeEdge>) -> &TopoDS_Edge;
         pub fn Build(self: Pin<&mut BRepBuilderAPI_MakeEdge>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepBuilderAPI_MakeEdge) -> bool;
+        pub fn Error(self: &BRepBuilderAPI_MakeEdge) -> BRepBuilderAPI_EdgeError;
 
         type BRepBuilderAPI_MakeWire;
 
@@ -619,6 +655,7 @@ pub mod ffi {
         pub fn Wire(self: Pin<&mut BRepBuilderAPI_MakeWire>) -> &TopoDS_Wire;
         pub fn Build(self: Pin<&mut BRepBuilderAPI_MakeWire>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepBuilderAPI_MakeWire) -> bool;
+        pub fn Error(self: &BRepBuilderAPI_MakeWire) -> BRepBuilderAPI_WireError;
 
         type BRepBuilderAPI_MakeFace;
 
@@ -637,6 +674,7 @@ pub mod ffi {
         pub fn Shape(self: Pin<&mut BRepBuilderAPI_MakeFace>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepBuilderAPI_MakeFace>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepBuilderAPI_MakeFace) -> bool;
+        pub fn Error(self: &BRepBuilderAPI_MakeFace) -> BRepBuilderAPI_FaceError;
 
         // BRepAdaptor
         type BRepAdaptor_Curve;

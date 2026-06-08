@@ -15,7 +15,7 @@ impl From<&GraphicLine> for Edge {
     fn from(line: &GraphicLine) -> Edge {
         let start = DVec2::from(line.start_point);
         let end = DVec2::from(line.end_point);
-        Edge::segment(start.extend(0.0), end.extend(0.0))
+        Edge::segment(start.extend(0.0), end.extend(0.0)).unwrap()
     }
 }
 
@@ -24,7 +24,7 @@ impl From<&GraphicArc> for Edge {
         let start = DVec2::from(arc.start_point);
         let mid = DVec2::from(arc.mid_point);
         let end = DVec2::from(arc.end_point);
-        Edge::arc(start.extend(0.0), mid.extend(0.0), end.extend(0.0))
+        Edge::arc(start.extend(0.0), mid.extend(0.0), end.extend(0.0)).unwrap()
     }
 }
 
@@ -36,7 +36,11 @@ impl From<&GraphicCircle> for Face {
         let delta = (center - end).abs();
 
         let radius = (delta.x * delta.x + delta.y * delta.y).sqrt();
-        Workplane::xy().translated(center.extend(0.0)).circle(center.x, center.y, radius).to_face()
+        Workplane::xy()
+            .translated(center.extend(0.0))
+            .circle(center.x, center.y, radius)
+            .to_face()
+            .unwrap()
     }
 }
 
@@ -46,7 +50,11 @@ impl From<&GraphicRect> for Face {
         let end = DVec2::from(rect.end_point);
 
         let dimensions = (end - start).abs();
-        Workplane::xy().translated(start.extend(0.0)).rect(dimensions.x, dimensions.y).to_face()
+        Workplane::xy()
+            .translated(start.extend(0.0))
+            .rect(dimensions.x, dimensions.y)
+            .to_face()
+            .unwrap()
     }
 }
 
@@ -64,6 +72,7 @@ impl KicadPcb {
             self.layer_edges(&BoardLayer::EdgeCuts),
             EdgeConnection::default(),
         )
+        .unwrap()
     }
 
     pub fn layer_edges<'a>(&'a self, layer: &'a BoardLayer) -> impl Iterator<Item = Edge> + 'a {
@@ -85,7 +94,7 @@ impl KicadPcb {
                     let start = translate + angle_vec.rotate(start);
                     let end = translate + angle_vec.rotate(end);
 
-                    Edge::segment(start.extend(0.0), end.extend(0.0))
+                    Edge::segment(start.extend(0.0), end.extend(0.0)).unwrap()
                 })
                 .chain(footprint.arcs().filter(|arc| arc.layer == *layer).map(move |arc| {
                     let start = arc.start_point;
@@ -99,7 +108,7 @@ impl KicadPcb {
                     let mid = translate + angle_vec.rotate(mid);
                     let end = translate + angle_vec.rotate(end);
 
-                    Edge::arc(start.extend(0.0), mid.extend(0.0), end.extend(0.0))
+                    Edge::arc(start.extend(0.0), mid.extend(0.0), end.extend(0.0)).unwrap()
                 }))
         });
 
