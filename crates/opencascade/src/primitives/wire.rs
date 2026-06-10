@@ -196,6 +196,25 @@ impl Wire {
         Self::from_wire(result_wire)
     }
 
+    /// Linearly extrudes this wire along `dir`, producing the swept [`Shell`].
+    ///
+    /// This is the 1D→2D analogue of [`Face::extrude`](crate::primitives::Face::extrude):
+    /// sweeping a wire along a vector yields a shell of connected faces.
+    #[must_use]
+    pub fn extrude(&self, dir: DVec3) -> Shell {
+        let prism_vec = make_vec(dir);
+
+        let copy = false;
+        let canonize = true;
+
+        let inner_shape = ffi::cast_wire_to_shape(&self.inner);
+        let mut make_prism =
+            ffi::BRepPrimAPI_MakePrism_ctor(inner_shape, &prism_vec, copy, canonize);
+        let shell = ffi::TopoDS_cast_to_shell(make_prism.pin_mut().Shape());
+
+        Shell::from_shell(shell)
+    }
+
     /// Sweep the wire along a path to produce a shell
     #[must_use]
     pub fn sweep_along(&self, path: &Wire) -> Shell {

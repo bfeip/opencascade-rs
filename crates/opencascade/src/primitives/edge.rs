@@ -1,4 +1,4 @@
-use crate::primitives::{make_axis_2, make_point};
+use crate::primitives::{make_axis_2, make_point, Face};
 use crate::Error;
 use cxx::UniquePtr;
 use glam::{dvec3, DVec3};
@@ -168,6 +168,25 @@ impl Edge {
         let curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
 
         EdgeType::from(curve.GetType())
+    }
+
+    /// Linearly extrudes this edge along `dir`, producing the swept [`Face`].
+    ///
+    /// This is the 1D→2D analogue of [`Face::extrude`](crate::primitives::Face::extrude):
+    /// sweeping an edge along a vector yields a single surface.
+    #[must_use]
+    pub fn extrude(&self, dir: DVec3) -> Face {
+        let prism_vec = make_vec(dir);
+
+        let copy = false;
+        let canonize = true;
+
+        let inner_shape = ffi::cast_edge_to_shape(&self.inner);
+        let mut make_prism =
+            ffi::BRepPrimAPI_MakePrism_ctor(inner_shape, &prism_vec, copy, canonize);
+        let face = ffi::TopoDS_cast_to_face(make_prism.pin_mut().Shape());
+
+        Face::from_face(face)
     }
 }
 
