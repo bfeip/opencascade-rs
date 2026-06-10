@@ -97,9 +97,14 @@ impl Edge {
 
     pub fn ellipse() {}
 
+    /// Interpolates a B-spline curve through `points`. When `periodic` is true the
+    /// curve is closed smoothly back to the first point; the closing point must NOT
+    /// be repeated in `points`. `tangents` constrains the start/end tangents and
+    /// only applies to open (non-periodic) curves.
     pub fn spline_from_points(
         points: impl IntoIterator<Item = DVec3>,
         tangents: Option<(DVec3, DVec3)>,
+        periodic: bool,
     ) -> Result<Self, Error> {
         let points: Vec<_> = points.into_iter().collect();
         let mut array = ffi::TColgp_HArray1OfPnt_ctor(1, points.len() as i32);
@@ -108,7 +113,6 @@ impl Edge {
         }
         let array_handle = ffi::new_HandleTColgpHArray1OfPnt_from_TColgpHArray1OfPnt(array);
 
-        let periodic = false;
         let tolerance = 1.0e-7;
         let mut interpolate = ffi::GeomAPI_Interpolate_ctor(&array_handle, periodic, tolerance);
         if let Some((t_start, t_end)) = tangents {
