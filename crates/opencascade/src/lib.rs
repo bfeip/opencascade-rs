@@ -37,6 +37,8 @@ pub enum Error {
     UntriangulatedFace,
     #[error("at least 2 points are required for creating a wire")]
     NotEnoughPoints,
+    #[error("consecutive spline points at indices {0} and {1} are identical")]
+    IdenticalSplinePoints(usize, usize),
     #[error("failed to build edge: {0:?}")]
     EdgeFailed(EdgeError),
     #[error("failed to build wire: {0:?}")]

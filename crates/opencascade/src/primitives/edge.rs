@@ -107,13 +107,29 @@ impl Edge {
         periodic: bool,
     ) -> Result<Self, Error> {
         let points: Vec<_> = points.into_iter().collect();
+        let tolerance = 1.0e-7;
+
+        if points.len() < 2 {
+            return Err(Error::NotEnoughPoints);
+        }
+        for (i, pair) in points.windows(2).enumerate() {
+            if pair[0].distance(pair[1]) <= tolerance {
+                return Err(Error::IdenticalSplinePoints(i, i + 1));
+            }
+        }
+        if periodic {
+            let last = points.len() - 1;
+            if points[last].distance(points[0]) <= tolerance {
+                return Err(Error::IdenticalSplinePoints(last, 0));
+            }
+        }
+
         let mut array = ffi::TColgp_HArray1OfPnt_ctor(1, points.len() as i32);
-        for (index, point) in points.into_iter().enumerate() {
-            array.pin_mut().SetValue(index as i32 + 1, &make_point(point));
+        for (index, point) in points.iter().enumerate() {
+            array.pin_mut().SetValue(index as i32 + 1, &make_point(*point));
         }
         let array_handle = ffi::new_HandleTColgpHArray1OfPnt_from_TColgpHArray1OfPnt(array);
 
-        let tolerance = 1.0e-7;
         let mut interpolate = ffi::GeomAPI_Interpolate_ctor(&array_handle, periodic, tolerance);
         if let Some((t_start, t_end)) = tangents {
             interpolate.pin_mut().Load(&make_vec(t_start), &make_vec(t_end), true);
@@ -231,5 +247,30 @@ mod tests {
             result,
             Err(Error::EdgeFailed(EdgeError::LineThroughIdenticalPoints))
         ));
+    }
+
+    #[test]
+    fn spline_through_consecutive_identical_points_reports_error() {
+        // Two consecutive identical points would make OCCT's interpolation
+        // constructor raise a Standard_ConstructionError and abort the process;
+        // the guard must surface this as a recoverable error instead.
+        let p = dvec3(1.0, 2.0, 3.0);
+        let result = Edge::spline_from_points([p, p, dvec3(4.0, 5.0, 6.0)], None, false);
+
+        assert!(matches!(result, Err(Error::IdenticalSplinePoints(0, 1))));
+    }
+
+    #[test]
+    fn spline_through_nonconsecutive_duplicate_points_is_accepted() {
+        // A spline may legitimately revisit a location, so only *adjacent*
+        // duplicates are rejected.
+        let p = dvec3(0.0, 0.0, 0.0);
+        let result = Edge::spline_from_points(
+            [p, dvec3(1.0, 0.0, 0.0), dvec3(1.0, 1.0, 0.0), p],
+            None,
+            false,
+        );
+
+        assert!(result.is_ok());
     }
 }
