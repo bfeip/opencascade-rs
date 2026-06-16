@@ -788,21 +788,20 @@ impl Shape {
     }
 
     /// Returns `true` if this shape has no underlying topology (null `myTShape`).
-    /// Calling `shape_type()` or most other methods on a null shape is undefined behaviour.
+    /// Calling most methods on a null shape is undefined behavior.
     pub fn is_null(&self) -> bool {
         ffi::TopoDS_Shape_IsNull(&self.inner)
     }
 
     /// Iterates the direct children of this shape.
     /// Only meaningful when `shape_type() == ShapeType::Compound`.
-    /// Unlike `edges()` and `faces()`, this does not recurse — it yields the immediate sub-shapes.
+    /// This does not recurse — it yields the immediate sub-shapes.
     pub fn sub_shapes(&self) -> SubShapeIterator {
         SubShapeIterator { inner: ffi::TopoDS_Iterator_ctor(&self.inner) }
     }
 
     /// Returns the 4×4 row-major transform matrix from this shape's `TopLoc_Location`.
     /// `mat[row][col]` with rows and cols 0-indexed.
-    /// The 4th row is implicit `[0, 0, 0, 1]`. Returns identity when the location is identity.
     pub fn location_as_matrix(&self) -> [[f64; 4]; 4] {
         let loc = ffi::TopoDS_Shape_Location(&self.inner);
         if ffi::TopLoc_Location_IsIdentity(&loc) {
@@ -822,6 +821,22 @@ impl Shape {
         }
         mat[3] = [0.0, 0.0, 0.0, 1.0];
         mat
+    }
+
+    /// Immutably applies a general transform, returning the new transformed shape.
+    /// `mat` is row-major and zero-indexed (`mat[row][col]`).
+    #[must_use]
+    pub fn gtransform(&self, mat: [[f64; 4]; 4]) -> Shape {
+        let mut transform = ffi::new_gp_GTrsf();
+        for row in 0..3 {
+            for col in 0..4 {
+                transform.pin_mut().SetValue((row + 1) as i32, (col + 1) as i32, mat[row][col]);
+            }
+        }
+
+        // The constructor performs the transform; `Shape()` returns the result.
+        let mut builder = ffi::BRepBuilderAPI_GTransform_ctor(&self.inner, &transform, true);
+        Self::from_shape(builder.pin_mut().Shape())
     }
 
     // TODO(bschwind) - Convert the return type to an iterator.
