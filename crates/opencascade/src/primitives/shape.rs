@@ -827,6 +827,12 @@ impl Shape {
     /// `mat` is row-major and zero-indexed (`mat[row][col]`).
     #[must_use]
     pub fn gtransform(&self, mat: [[f64; 4]; 4]) -> Shape {
+        // Flatten any transforms pre-existing on the shape, they seem to be applied
+        // twice, possible OCCT bug?
+        let identity = ffi::new_transform();
+        let mut flatten = ffi::BRepBuilderAPI_Transform_ctor(&self.inner, &identity, true);
+        let flat = flatten.pin_mut().Shape();
+
         let mut transform = ffi::new_gp_GTrsf();
         for row in 0..3 {
             for col in 0..4 {
@@ -835,7 +841,7 @@ impl Shape {
         }
 
         // The constructor performs the transform; `Shape()` returns the result.
-        let mut builder = ffi::BRepBuilderAPI_GTransform_ctor(&self.inner, &transform, true);
+        let mut builder = ffi::BRepBuilderAPI_GTransform_ctor(flat, &transform, true);
         Self::from_shape(builder.pin_mut().Shape())
     }
 
@@ -941,5 +947,63 @@ impl ChamferMaker {
 
     pub fn build(mut self) -> Shape {
         Shape::from_shape(self.inner.pin_mut().Shape())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Shape;
+    use crate::primitives::{Face, Wire};
+    use glam::dvec3;
+
+    fn max_y(shape: &Shape) -> f64 {
+        shape
+            .mesh()
+            .unwrap()
+            .vertices
+            .iter()
+            .map(|v| v.y)
+            .fold(f64::NEG_INFINITY, f64::max)
+    }
+
+    /// Extruding a face builds a prism whose top cap is the profile carried by a
+    /// `TopLoc_Location` (= the extrude vector). `gtransform` must treat that
+    /// located sub-shape consistently with the rest: an identity transform must
+    /// not move it. Guards the "popped-off face" regression.
+    #[test]
+    fn gtransform_identity_preserves_located_prism_cap() {
+        let wire = Wire::from_ordered_points([
+            dvec3(0.0, 0.0, 0.0),
+            dvec3(1.0, 0.0, 0.0),
+            dvec3(1.0, 0.0, 1.0),
+            dvec3(0.0, 0.0, 1.0),
+        ])
+        .unwrap();
+        let solid: Shape = Face::from_wire(&wire).unwrap().extrude(dvec3(0.0, 2.0, 0.0)).into();
+
+        let before = max_y(&solid);
+        let identity = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        let after = max_y(&solid.gtransform(identity));
+        assert!(
+            (before - after).abs() < 1e-6,
+            "identity gtransform moved the located cap: max_y {before} -> {after}"
+        );
+
+        // A real (uniform 2×) transform must scale the cap with the body — the cap
+        // base at y=2 lands at y=4, not y=6 (which is what a double-applied
+        // +Y location would produce).
+        let scale2 = [
+            [2.0, 0.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0, 0.0],
+            [0.0, 0.0, 2.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        let scaled = max_y(&solid.gtransform(scale2));
+        assert!((scaled - 4.0).abs() < 1e-6, "expected cap at y=4 after 2x scale, got {scaled}");
     }
 }
