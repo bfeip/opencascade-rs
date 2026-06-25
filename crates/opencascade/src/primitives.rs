@@ -111,6 +111,27 @@ pub fn make_axis_2(origin: DVec3, dir: DVec3) -> UniquePtr<ffi::gp_Ax2> {
     ffi::gp_Ax2_ctor(&make_point(origin), &make_dir(dir))
 }
 
+pub struct VertexIterator {
+    explorer: UniquePtr<ffi::TopExp_Explorer>,
+}
+
+impl Iterator for VertexIterator {
+    type Item = Vertex;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.explorer.More() {
+            let vertex = ffi::TopoDS_cast_to_vertex(self.explorer.Current());
+            let vertex = Vertex::from_vertex(vertex);
+
+            self.explorer.pin_mut().Next();
+
+            Some(vertex)
+        } else {
+            None
+        }
+    }
+}
+
 pub struct EdgeIterator {
     explorer: UniquePtr<ffi::TopExp_Explorer>,
 }

@@ -31,4 +31,15 @@ impl Vertex {
 
         Self { inner }
     }
+
+    pub(crate) fn from_vertex(vertex: &ffi::TopoDS_Vertex) -> Self {
+        let inner = ffi::TopoDS_Vertex_to_owned(vertex);
+        Self { inner }
+    }
+
+    /// Returns the 3D position of this vertex.
+    pub fn point(&self) -> DVec3 {
+        let point = ffi::BRep_Tool_Pnt(&self.inner);
+        DVec3::new(point.X(), point.Y(), point.Z())
+    }
 }

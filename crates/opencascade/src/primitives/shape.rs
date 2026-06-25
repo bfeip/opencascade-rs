@@ -3,7 +3,7 @@ use crate::{
     primitives::{
         make_axis_1, make_axis_2, make_dir, make_point, make_point2d, make_vec, BooleanShape,
         Compound, Edge, EdgeIterator, Face, FaceIterator, ShapeType, Shell, Solid, SubShapeIterator,
-        Vertex, Wire,
+        Vertex, VertexIterator, Wire,
     },
     Error,
 };
@@ -785,6 +785,11 @@ impl Shape {
     pub fn faces(&self) -> FaceIterator {
         let explorer = ffi::TopExp_Explorer_ctor(&self.inner, ffi::TopAbs_ShapeEnum::TopAbs_FACE);
         FaceIterator { explorer }
+    }
+
+    pub fn vertices(&self) -> VertexIterator {
+        let explorer = ffi::TopExp_Explorer_ctor(&self.inner, ffi::TopAbs_ShapeEnum::TopAbs_VERTEX);
+        VertexIterator { explorer }
     }
 
     /// Returns `true` if this shape has no underlying topology (null `myTShape`).
