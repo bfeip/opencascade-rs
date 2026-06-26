@@ -53,6 +53,12 @@ impl Edge {
         Self { inner }
     }
 
+    /// Returns `true` if both edges share the same underlying topology, ignoring
+    /// orientation.
+    pub fn is_same(&self, other: &Edge) -> bool {
+        ffi::cast_edge_to_shape(&self.inner).IsSame(ffi::cast_edge_to_shape(&other.inner))
+    }
+
     fn from_make_edge(
         mut make_edge: UniquePtr<ffi::BRepBuilderAPI_MakeEdge>,
     ) -> Result<Self, Error> {

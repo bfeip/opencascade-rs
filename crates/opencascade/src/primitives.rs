@@ -169,6 +169,27 @@ impl EdgeIterator {
     }
 }
 
+pub struct WireIterator {
+    explorer: UniquePtr<ffi::TopExp_Explorer>,
+}
+
+impl Iterator for WireIterator {
+    type Item = Wire;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.explorer.More() {
+            let wire = ffi::TopoDS_cast_to_wire(self.explorer.Current());
+            let wire = Wire::from_wire(wire);
+
+            self.explorer.pin_mut().Next();
+
+            Some(wire)
+        } else {
+            None
+        }
+    }
+}
+
 pub struct FaceIterator {
     explorer: UniquePtr<ffi::TopExp_Explorer>,
 }

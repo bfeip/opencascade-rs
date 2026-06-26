@@ -3,7 +3,7 @@ use crate::{
     primitives::{
         make_axis_1, make_axis_2, make_dir, make_point, make_point2d, make_vec, BooleanShape,
         Compound, Edge, EdgeIterator, Face, FaceIterator, ShapeType, Shell, Solid, SubShapeIterator,
-        Vertex, VertexIterator, Wire,
+        Vertex, VertexIterator, Wire, WireIterator,
     },
     Error,
 };
@@ -792,6 +792,11 @@ impl Shape {
         VertexIterator { explorer }
     }
 
+    pub fn wires(&self) -> WireIterator {
+        let explorer = ffi::TopExp_Explorer_ctor(&self.inner, ffi::TopAbs_ShapeEnum::TopAbs_WIRE);
+        WireIterator { explorer }
+    }
+
     /// Returns `true` if this shape has no underlying topology (null `myTShape`).
     /// Calling most methods on a null shape is undefined behavior.
     pub fn is_null(&self) -> bool {
@@ -1010,5 +1015,31 @@ mod tests {
         ];
         let scaled = max_y(&solid.gtransform(scale2));
         assert!((scaled - 4.0).abs() < 1e-6, "expected cap at y=4 after 2x scale, got {scaled}");
+    }
+
+    #[test]
+    fn box_has_one_wire_per_face() {
+        let cube = Shape::cube(1.0);
+        assert_eq!(cube.wires().count(), 6, "a box has one boundary wire per face");
+        assert_eq!(cube.faces().count(), 6);
+        // edges() yields one occurrence per incident face (no de-duplication): each of
+        // the 12 physical edges is shared by 2 faces, giving 24 occurrences.
+        assert_eq!(cube.edges().count(), 24);
+    }
+
+    #[test]
+    fn edge_is_same_ignores_orientation_across_wires() {
+        // Each box edge is shared by two face-boundary wires, reached with opposite
+        // orientations. `is_same` must still recognize them as the same physical edge.
+        let cube = Shape::cube(1.0);
+        let global: Vec<_> = cube.edges().collect();
+        for wire in cube.wires() {
+            for member in wire.edges() {
+                assert!(
+                    global.iter().any(|g| g.is_same(&member)),
+                    "wire edge had no matching global edge by is_same"
+                );
+            }
+        }
     }
 }

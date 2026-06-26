@@ -4,7 +4,7 @@ use crate::{
     angle::{Angle, ToAngle},
     law_function::law_function_from_graph,
     make_pipe_shell::make_pipe_shell_with_law_function,
-    primitives::{make_dir, make_point, make_vec, Edge, Face, JoinType, Shape, Shell},
+    primitives::{make_dir, make_point, make_vec, Edge, EdgeIterator, Face, JoinType, Shape, Shell},
     Error,
 };
 use cxx::UniquePtr;
@@ -42,6 +42,16 @@ impl Wire {
         let inner = ffi::TopoDS_Wire_to_owned(wire);
 
         Self { inner }
+    }
+
+    /// Iterates the wire's member edges in topological (explorer) order.
+    pub fn edges(&self) -> EdgeIterator {
+        let explorer = ffi::TopExp_Explorer_ctor(
+            ffi::cast_wire_to_shape(&self.inner),
+            ffi::TopAbs_ShapeEnum::TopAbs_EDGE,
+        );
+
+        EdgeIterator { explorer }
     }
 
     fn from_make_wire(
