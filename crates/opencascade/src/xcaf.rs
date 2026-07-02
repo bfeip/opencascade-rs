@@ -145,6 +145,13 @@ impl XcafShapeTool {
         ffi::xcaf_label_is_reference(&self.inner, &label.inner)
     }
 
+    /// Resolve a reference label to its referred (prototype) label.
+    /// Returns `None` when the label is not a reference.
+    pub fn referred_label(&self, label: &XcafLabel) -> Option<XcafLabel> {
+        let inner = ffi::xcaf_label_referred(&self.inner, &label.inner);
+        (!ffi::TDF_Label_IsNull(&inner)).then(|| XcafLabel { inner })
+    }
+
     /// Get the `TopoDS_Shape` associated with a label.
     pub fn shape(&self, label: &XcafLabel) -> Shape {
         Shape { inner: ffi::xcaf_label_shape(&self.inner, &label.inner) }

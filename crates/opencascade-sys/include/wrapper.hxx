@@ -728,6 +728,17 @@ xcaf_label_shape(const HandleXCAFDoc_ShapeTool &tool, const TDF_Label &label) {
   return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(tool->GetShape(label)));
 }
 
+// Resolves a reference label to its referred (prototype) label.
+// Returns a null label when `label` is not a reference.
+inline std::unique_ptr<TDF_Label>
+xcaf_label_referred(const HandleXCAFDoc_ShapeTool &tool, const TDF_Label &label) {
+  TDF_Label referred;
+  tool->GetReferredShape(label, referred);
+  return std::unique_ptr<TDF_Label>(new TDF_Label(referred));
+}
+
+inline bool TDF_Label_IsNull(const TDF_Label &label) { return label.IsNull(); }
+
 inline std::unique_ptr<TopLoc_Location>
 xcaf_label_location(const HandleXCAFDoc_ShapeTool &tool, const TDF_Label &label) {
   return std::unique_ptr<TopLoc_Location>(new TopLoc_Location(tool->GetLocation(label)));

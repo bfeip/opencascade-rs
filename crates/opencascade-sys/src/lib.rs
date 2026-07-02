@@ -1415,6 +1415,11 @@ pub mod ffi {
             tool: &HandleXCAFDoc_ShapeTool,
             label: &TDF_Label,
         ) -> UniquePtr<TopLoc_Location>;
+        pub fn xcaf_label_referred(
+            tool: &HandleXCAFDoc_ShapeTool,
+            label: &TDF_Label,
+        ) -> UniquePtr<TDF_Label>;
+        pub fn TDF_Label_IsNull(label: &TDF_Label) -> bool;
         pub fn xcaf_label_name(label: &TDF_Label) -> String;
 
         pub fn xcaf_color_of_label(
