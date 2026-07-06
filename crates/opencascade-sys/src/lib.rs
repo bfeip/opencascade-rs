@@ -1143,6 +1143,31 @@ pub mod ffi {
         pub fn SetRotation(self: Pin<&mut gp_Trsf>, axis: &gp_Ax1, angle: f64);
         pub fn SetScale(self: Pin<&mut gp_Trsf>, point: &gp_Pnt, scale: f64);
         pub fn SetTranslation(self: Pin<&mut gp_Trsf>, point1: &gp_Pnt, point2: &gp_Pnt);
+        /// Sets the transform from the 12 coefficients of a row-major 3x4
+        /// matrix.
+        /// 
+        /// ## Panics
+        /// 
+        /// Raises Standard_ConstructionError (aborting the process —
+        /// OCCT exceptions cross cxx uncaught) unless the 3x3 part is a
+        /// rotation optionally combined with a uniform scale and/or mirror;
+        /// callers must validate the matrix first.
+        #[allow(clippy::too_many_arguments)]
+        pub fn SetValues(
+            self: Pin<&mut gp_Trsf>,
+            a11: f64,
+            a12: f64,
+            a13: f64,
+            a14: f64,
+            a21: f64,
+            a22: f64,
+            a23: f64,
+            a24: f64,
+            a31: f64,
+            a32: f64,
+            a33: f64,
+            a34: f64,
+        );
         pub fn Value(self: &gp_Trsf, the_row: i32, the_col: i32) -> f64;
 
         #[cxx_name = "SetTranslationPart"]
@@ -1204,6 +1229,15 @@ pub mod ffi {
         pub fn Shape(self: Pin<&mut BRepBuilderAPI_GTransform>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepBuilderAPI_GTransform>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepBuilderAPI_GTransform) -> bool;
+
+        /// Direct-modeling tweak: rigidly transform `faces` (sub-shapes of the
+        /// solid `shape`) and re-solve the body around them. Errs when the
+        /// re-solve is impossible or yields an invalid solid.
+        pub fn shape_tweak_faces(
+            shape: &TopoDS_Shape,
+            faces: &TopTools_ListOfShape,
+            transform: &gp_Trsf,
+        ) -> Result<UniquePtr<TopoDS_Shape>>;
 
         // Topology Explorer
         type TopExp_Explorer;

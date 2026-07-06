@@ -45,6 +45,10 @@ pub enum Error {
     WireFailed(WireError),
     #[error("failed to build face: {0:?}")]
     FaceFailed(FaceError),
+    #[error("transform is not a similarity (rotation + translation + uniform scale)")]
+    NotASimilarityTransform,
+    #[error("failed to tweak faces: {0}")]
+    TweakFailed(String),
 }
 
 /// Reason a `BRepBuilderAPI_MakeEdge` failed to produce an edge.

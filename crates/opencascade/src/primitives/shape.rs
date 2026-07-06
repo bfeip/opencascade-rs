@@ -855,6 +855,45 @@ impl Shape {
         Self::from_shape(builder.pin_mut().Shape())
     }
 
+    /// Transforms `faces` (sub-shapes of this solid) and re-solves the body
+    /// around them — a direct-modeling "tweak". Neighboring faces are extended
+    /// and re-intersected; the rest of the boundary is preserved.
+    ///
+    /// `mat` is row-major and zero-indexed like [`Self::gtransform`], and must
+    /// be a similarity transform (rotation + translation + uniform scale).
+    ///
+    /// Errs when the matrix is not a similarity, or when the body cannot be
+    /// re-solved around the moved faces (a face moved past its neighbors,
+    /// tangent junctions that cannot re-intersect, ...).
+    pub fn tweak_faces<T: AsRef<Face>>(
+        &self,
+        faces: impl IntoIterator<Item = T>,
+        mat: [[f64; 4]; 4],
+    ) -> Result<Shape, Error> {
+        // Pre-validate: gp_Trsf::SetValues aborts (uncatchable across cxx) on
+        // a non-similarity matrix.
+        if !is_similarity(&mat) {
+            return Err(Error::NotASimilarityTransform);
+        }
+
+        let mut face_list = ffi::new_list_of_shape();
+        for face in faces.into_iter() {
+            ffi::shape_list_append_face(face_list.pin_mut(), &face.as_ref().inner);
+        }
+
+        let mut transform = ffi::new_transform();
+        #[rustfmt::skip]
+        transform.pin_mut().SetValues(
+            mat[0][0], mat[0][1], mat[0][2], mat[0][3],
+            mat[1][0], mat[1][1], mat[1][2], mat[1][3],
+            mat[2][0], mat[2][1], mat[2][2], mat[2][3],
+        );
+
+        let inner = ffi::shape_tweak_faces(&self.inner, &face_list, &transform)
+            .map_err(|e| Error::TweakFailed(e.what().to_string()))?;
+        Ok(Shape { inner })
+    }
+
     // TODO(bschwind) - Convert the return type to an iterator.
     pub fn faces_along_line(&self, line_origin: DVec3, line_dir: DVec3) -> Vec<LineFaceHitPoint> {
         let mut intersector = ffi::BRepIntCurveSurface_Inter_ctor();
@@ -940,6 +979,38 @@ pub struct LineFaceHitPoint {
     pub point: DVec3,
 }
 
+/// Whether `mat` is affine (bottom row `0 0 0 1`) with a 3x3 part that is a
+/// rotation combined with a positive uniform scale i.e. no shear, no non-uniform
+/// scale, no mirror.
+fn is_similarity(mat: &[[f64; 4]; 4]) -> bool {
+    const EPSILON: f64 = 1e-7;
+
+    let affine = [0.0, 0.0, 0.0, 1.0]
+        .iter()
+        .zip(mat[3].iter())
+        .all(|(expected, actual)| (expected - actual).abs() < EPSILON);
+    if !affine {
+        return false;
+    }
+
+    let col = |k: usize| DVec3::new(mat[0][k], mat[1][k], mat[2][k]);
+    let (c0, c1, c2) = (col(0), col(1), col(2));
+    let scale_sq = (c0.length_squared() + c1.length_squared() + c2.length_squared()) / 3.0;
+    if scale_sq < EPSILON {
+        return false;
+    }
+
+    let uniform = [c0, c1, c2]
+        .iter()
+        .all(|c| (c.length_squared() - scale_sq).abs() < EPSILON * scale_sq);
+    let orthogonal = [c0.dot(c1), c1.dot(c2), c2.dot(c0)]
+        .iter()
+        .all(|dot| dot.abs() < EPSILON * scale_sq);
+    let right_handed = c0.cross(c1).dot(c2) > 0.0;
+
+    uniform && orthogonal && right_handed
+}
+
 pub struct ChamferMaker {
     inner: UniquePtr<ffi::BRepFilletAPI_MakeChamfer>,
 }
@@ -963,7 +1034,8 @@ impl ChamferMaker {
 #[cfg(test)]
 mod tests {
     use super::Shape;
-    use crate::primitives::{Face, Wire};
+    use crate::primitives::{Face, ShapeType, Wire};
+    use crate::Error;
     use glam::dvec3;
 
     fn max_y(shape: &Shape) -> f64 {
@@ -1040,6 +1112,114 @@ mod tests {
                     "wire edge had no matching global edge by is_same"
                 );
             }
+        }
+    }
+
+    /// The face of `shape` whose center has the largest y — for a box, the top.
+    fn top_face(shape: &Shape) -> Face {
+        shape
+            .faces()
+            .max_by(|a, b| a.center_of_mass().y.total_cmp(&b.center_of_mass().y))
+            .expect("shape has faces")
+    }
+
+    fn translation(v: glam::DVec3) -> [[f64; 4]; 4] {
+        [
+            [1.0, 0.0, 0.0, v.x],
+            [0.0, 1.0, 0.0, v.y],
+            [0.0, 0.0, 1.0, v.z],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    }
+
+    /// Rotation about the x-directed axis through `center` by `angle` radians.
+    fn x_rotation_about(center: glam::DVec3, angle: f64) -> [[f64; 4]; 4] {
+        let (sin, cos) = angle.sin_cos();
+        // t = c - R*c keeps `center` fixed.
+        let ty = center.y - (cos * center.y - sin * center.z);
+        let tz = center.z - (sin * center.y + cos * center.z);
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, cos, -sin, ty],
+            [0.0, sin, cos, tz],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    }
+
+    #[test]
+    fn tweak_translate_top_face_stretches_box() {
+        let cube = Shape::cube(2.0);
+        let tweaked = cube
+            .tweak_faces([top_face(&cube)], translation(dvec3(0.0, 1.0, 0.0)))
+            .expect("translating the top face up re-solves");
+
+        assert_eq!(tweaked.shape_type(), ShapeType::Solid);
+        assert_eq!(tweaked.faces().count(), 6, "a stretched box is still a box");
+        assert!((max_y(&tweaked) - 3.0).abs() < 1e-6, "top must land at y=3");
+    }
+
+    #[test]
+    fn tweak_rotate_top_face_makes_valid_wedge() {
+        let cube = Shape::cube(2.0);
+        let top = top_face(&cube);
+        let mat = x_rotation_about(top.center_of_mass(), 0.3);
+        let tweaked = cube.tweak_faces([top], mat).expect("tilting the top face re-solves");
+
+        assert_eq!(tweaked.shape_type(), ShapeType::Solid);
+        assert_eq!(tweaked.faces().count(), 6);
+        // Tilting about the face-centered x axis raises one top edge and lowers
+        // the other.
+        assert!(max_y(&tweaked) > 2.0 + 1e-3, "one top edge must rise above y=2");
+    }
+
+    #[test]
+    fn tweak_rejects_non_similarity_transform() {
+        let cube = Shape::cube(2.0);
+        let squash = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.5, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        let result = cube.tweak_faces([top_face(&cube)], squash);
+        assert!(
+            matches!(result, Err(Error::NotASimilarityTransform)),
+            "non-uniform scale must be rejected before reaching OCCT"
+        );
+    }
+
+    #[test]
+    fn tweak_rejects_face_from_another_shape() {
+        let cube = Shape::cube(2.0);
+        let other = Shape::cube(3.0);
+        let result = cube.tweak_faces([top_face(&other)], translation(dvec3(0.0, 1.0, 0.0)));
+        assert!(result.is_err(), "a face that isn't a sub-shape of the solid must be rejected");
+    }
+
+    #[test]
+    fn tweak_rotate_top_face_perpendicular_errors() {
+        // Rotated a full 90°, the top plane becomes parallel to two walls and
+        // can no longer close a volume with them — the re-solve must fail, not
+        // produce garbage.
+        let cube = Shape::cube(2.0);
+        let top = top_face(&cube);
+        let mat = x_rotation_about(top.center_of_mass(), std::f64::consts::FRAC_PI_2);
+        assert!(cube.tweak_faces([top], mat).is_err());
+    }
+
+    #[test]
+    fn tweak_after_fillet_does_not_panic() {
+        // A filleted edge makes the top face's neighbors tangent-joined —
+        // exactly the fragile case for extend-and-reintersect. Either outcome
+        // (a re-solved body or an error) is acceptable; crashing is not.
+        let cube = Shape::cube(2.0);
+        let edge = cube.edges().next().expect("cube has edges");
+        let filleted = cube.fillet_edge(0.2, &edge);
+        let top = top_face(&filleted);
+        let mat = x_rotation_about(top.center_of_mass(), 0.2);
+        match filleted.tweak_faces([top], mat) {
+            Ok(tweaked) => assert_eq!(tweaked.shape_type(), ShapeType::Solid),
+            Err(err) => println!("fillet-adjacent tweak declined: {err}"),
         }
     }
 }
