@@ -865,6 +865,9 @@ impl Shape {
     /// Errs when the matrix is not a similarity, or when the body cannot be
     /// re-solved around the moved faces (a face moved past its neighbors,
     /// tangent junctions that cannot re-intersect, ...).
+    ///
+    /// On a compound, the tweak is applied to the child solid owning the
+    /// faces (all faces must belong to one child) and the siblings are kept.
     pub fn tweak_faces<T: AsRef<Face>>(
         &self,
         faces: impl IntoIterator<Item = T>,
@@ -874,6 +877,11 @@ impl Shape {
         // a non-similarity matrix.
         if !is_similarity(&mat) {
             return Err(Error::NotASimilarityTransform);
+        }
+
+        if self.shape_type() == ShapeType::Compound {
+            let faces: Vec<T> = faces.into_iter().collect();
+            return self.tweak_faces_in_compound(&faces, mat);
         }
 
         let mut face_list = ffi::new_list_of_shape();
@@ -892,6 +900,45 @@ impl Shape {
         let inner = ffi::shape_tweak_faces(&self.inner, &face_list, &transform)
             .map_err(|e| Error::TweakFailed(e.what().to_string()))?;
         Ok(Shape { inner })
+    }
+
+    /// Tweak faces of one child of a compound and reassemble it with the
+    /// untouched siblings.
+    fn tweak_faces_in_compound<T: AsRef<Face>>(
+        &self,
+        faces: &[T],
+        mat: [[f64; 4]; 4],
+    ) -> Result<Shape, Error> {
+        let children: Vec<Shape> = self.sub_shapes().collect();
+
+        let mut owner = None;
+        for face in faces {
+            let face = face.as_ref();
+            let index = children
+                .iter()
+                .position(|child| child.faces().any(|f| f.is_same(face)))
+                .ok_or_else(|| {
+                    Error::TweakFailed("tweak: a face does not belong to the shape".to_string())
+                })?;
+            match owner {
+                None => owner = Some(index),
+                Some(previous) if previous != index => {
+                    return Err(Error::TweakFailed(
+                        "tweak: faces span multiple children of a compound".to_string(),
+                    ));
+                },
+                Some(_) => {},
+            }
+        }
+        let owner =
+            owner.ok_or_else(|| Error::TweakFailed("tweak: no faces given".to_string()))?;
+
+        let tweaked = children[owner].tweak_faces(faces.iter().map(|f| f.as_ref()), mat)?;
+        let rebuilt = children
+            .iter()
+            .enumerate()
+            .map(|(i, child)| if i == owner { tweaked.clone() } else { child.clone() });
+        Ok(Compound::from_shapes(rebuilt).into())
     }
 
     // TODO(bschwind) - Convert the return type to an iterator.
@@ -1034,7 +1081,7 @@ impl ChamferMaker {
 #[cfg(test)]
 mod tests {
     use super::Shape;
-    use crate::primitives::{Face, ShapeType, Wire};
+    use crate::primitives::{Compound, Face, ShapeType, Wire};
     use crate::Error;
     use glam::dvec3;
 
@@ -1208,6 +1255,35 @@ mod tests {
     }
 
     #[test]
+    fn tweak_in_compound_edits_owner_and_keeps_siblings() {
+        let box_a = Shape::cube(2.0);
+        let box_b = Shape::box_from_corners(dvec3(3.0, 0.0, 0.0), dvec3(5.0, 2.0, 2.0));
+        let compound: Shape = Compound::from_shapes([&box_a, &box_b]).into();
+
+        let tweaked = compound
+            .tweak_faces([top_face(&box_a)], translation(dvec3(0.0, 1.0, 0.0)))
+            .expect("tweaking one child of a compound re-solves");
+
+        assert_eq!(tweaked.shape_type(), ShapeType::Compound);
+        assert_eq!(tweaked.sub_shapes().count(), 2, "the sibling solid must survive");
+        assert_eq!(tweaked.faces().count(), 12);
+        assert!((max_y(&tweaked) - 3.0).abs() < 1e-6, "tweaked child's top must land at y=3");
+    }
+
+    #[test]
+    fn tweak_faces_spanning_compound_children_errors() {
+        let box_a = Shape::cube(2.0);
+        let box_b = Shape::box_from_corners(dvec3(3.0, 0.0, 0.0), dvec3(5.0, 2.0, 2.0));
+        let compound: Shape = Compound::from_shapes([&box_a, &box_b]).into();
+
+        let result = compound.tweak_faces(
+            [top_face(&box_a), top_face(&box_b)],
+            translation(dvec3(0.0, 1.0, 0.0)),
+        );
+        assert!(result.is_err(), "faces owned by different children must be rejected");
+    }
+
+    #[test]
     fn tweak_after_fillet_does_not_panic() {
         // A filleted edge makes the top face's neighbors tangent-joined —
         // exactly the fragile case for extend-and-reintersect. Either outcome
@@ -1218,7 +1294,13 @@ mod tests {
         let top = top_face(&filleted);
         let mat = x_rotation_about(top.center_of_mass(), 0.2);
         match filleted.tweak_faces([top], mat) {
-            Ok(tweaked) => assert_eq!(tweaked.shape_type(), ShapeType::Solid),
+            Ok(tweaked) => {
+                // fillet_edges wraps its result in a compound; tweak keeps that shape.
+                assert_eq!(tweaked.shape_type(), ShapeType::Compound);
+                let mut children = tweaked.sub_shapes();
+                assert_eq!(children.next().map(|c| c.shape_type()), Some(ShapeType::Solid));
+                assert!(children.next().is_none());
+            },
             Err(err) => println!("fillet-adjacent tweak declined: {err}"),
         }
     }

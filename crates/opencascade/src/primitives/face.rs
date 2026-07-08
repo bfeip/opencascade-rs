@@ -52,6 +52,12 @@ impl Face {
         Self::from_make_face(make_face)
     }
 
+    /// Topological identity (same underlying TShape and location, ignoring
+    /// orientation) — the `TopoDS_Shape::IsSame` test.
+    pub fn is_same(&self, other: &Face) -> bool {
+        ffi::cast_face_to_shape(&self.inner).IsSame(ffi::cast_face_to_shape(&other.inner))
+    }
+
     #[must_use]
     pub fn extrude(&self, dir: DVec3) -> Solid {
         let prism_vec = make_vec(dir);
