@@ -1,9 +1,10 @@
 use crate::{
+    history::ShapeHistory,
     mesh::{FaceRange, Mesh, Mesher},
     primitives::{
-        make_axis_1, make_axis_2, make_dir, make_point, make_point2d, make_vec, BooleanShape,
-        Compound, Edge, EdgeIterator, Face, FaceIterator, ShapeType, Shell, Solid, SubShapeIterator,
-        Vertex, VertexIterator, Wire, WireIterator,
+        boolean_shape, make_axis_1, make_axis_2, make_dir, make_point, make_point2d, make_vec,
+        BooleanShape, Compound, Edge, EdgeIterator, Face, FaceIterator, ShapeType, Shell, Solid,
+        SubShapeIterator, Vertex, VertexIterator, Wire, WireIterator,
     },
     Error,
 };
@@ -289,6 +290,12 @@ impl Shape {
         Self { inner }
     }
 
+    /// Topological identity (same underlying TShape and location, ignoring
+    /// orientation) — the `TopoDS_Shape::IsSame` test.
+    pub fn is_same(&self, other: &Shape) -> bool {
+        self.inner.IsSame(&other.inner)
+    }
+
     /// Make a shape that models empty space.
     pub fn empty() -> Self {
         // NOTE: It may seem like using `TopoDS_Shape()` directly should work,
@@ -491,22 +498,8 @@ impl Shape {
         self.chamfer_edges(distance, self.edges())
     }
 
-    #[must_use]
-    pub fn subtract(&self, other: &Shape) -> BooleanShape {
-        let mut cut_operation = ffi::BRepAlgoAPI_Cut_ctor(&self.inner, &other.inner);
-
-        let edge_list = cut_operation.pin_mut().SectionEdges();
-        let vec = ffi::shape_list_to_vector(edge_list);
-
-        let mut new_edges = vec![];
-        for shape in vec.iter() {
-            let edge = ffi::TopoDS_cast_to_edge(shape);
-            new_edges.push(Edge::from_edge(edge));
-        }
-
-        let shape = Self::from_shape(cut_operation.pin_mut().Shape());
-
-        BooleanShape { shape, new_edges }
+    pub fn subtract(&self, other: &Shape) -> Result<BooleanShape, Error> {
+        boolean_shape::cut(&self.inner, &other.inner)
     }
 
     pub fn read_step_from_file(path: impl AsRef<Path>) -> Result<Self, Error> {
@@ -680,38 +673,12 @@ impl Shape {
         }
     }
 
-    #[must_use]
-    pub fn union(&self, other: &Shape) -> BooleanShape {
-        let mut fuse_operation = ffi::BRepAlgoAPI_Fuse_ctor(&self.inner, &other.inner);
-        let edge_list = fuse_operation.pin_mut().SectionEdges();
-        let vec = ffi::shape_list_to_vector(edge_list);
-
-        let mut new_edges = vec![];
-        for shape in vec.iter() {
-            let edge = ffi::TopoDS_cast_to_edge(shape);
-            new_edges.push(Edge::from_edge(edge));
-        }
-
-        let shape = Self::from_shape(fuse_operation.pin_mut().Shape());
-
-        BooleanShape { shape, new_edges }
+    pub fn union(&self, other: &Shape) -> Result<BooleanShape, Error> {
+        boolean_shape::fuse(&self.inner, &other.inner)
     }
 
-    #[must_use]
-    pub fn intersect(&self, other: &Shape) -> BooleanShape {
-        let mut fuse_operation = ffi::BRepAlgoAPI_Common_ctor(&self.inner, &other.inner);
-        let edge_list = fuse_operation.pin_mut().SectionEdges();
-        let vec = ffi::shape_list_to_vector(edge_list);
-
-        let mut new_edges = vec![];
-        for shape in vec.iter() {
-            let edge = ffi::TopoDS_cast_to_edge(shape);
-            new_edges.push(Edge::from_edge(edge));
-        }
-
-        let shape = Self::from_shape(fuse_operation.pin_mut().Shape());
-
-        BooleanShape { shape, new_edges }
+    pub fn intersect(&self, other: &Shape) -> Result<BooleanShape, Error> {
+        boolean_shape::common(&self.inner, &other.inner)
     }
 
     pub fn write_stl<P: AsRef<Path>>(&self, path: P) -> Result<(), Error> {
@@ -833,15 +800,76 @@ impl Shape {
         mat
     }
 
+    /// Immutably applies `mat`, preserving surface/curve types (a plane stays
+    /// a plane, a sphere a sphere).
+    ///
+    /// Only possible for similarity transforms (rotation + translation + uniform
+    /// scale); a general affine matrix must go through [`Self::gtransform`],
+    /// which converts all geometry to B-splines.
+    pub fn transformed(&self, mat: [[f64; 4]; 4]) -> Result<Shape, Error> {
+        Ok(self.transformed_with_history(mat)?.0)
+    }
+
+    /// Like [`Self::transformed`], additionally returning the sub-shape
+    /// history (input sub-shapes → transformed sub-shapes).
+    pub fn transformed_with_history(
+        &self,
+        mat: [[f64; 4]; 4],
+    ) -> Result<(Shape, ShapeHistory), Error> {
+        // Pre-validate: gp_Trsf::SetValues aborts (uncatchable across cxx) on
+        // a non-similarity matrix.
+        if !is_similarity(&mat) {
+            return Err(Error::NotASimilarityTransform);
+        }
+
+        let mut transform = ffi::new_transform();
+        #[rustfmt::skip]
+        transform.pin_mut().SetValues(
+            mat[0][0], mat[0][1], mat[0][2], mat[0][3],
+            mat[1][0], mat[1][1], mat[1][2], mat[1][3],
+            mat[2][0], mat[2][1], mat[2][2], mat[2][3],
+        );
+
+        let mut builder = ffi::BRepBuilderAPI_Transform_ctor(&self.inner, &transform, true);
+        let shape = Self::from_shape(builder.pin_mut().Shape());
+
+        let mut inputs = ffi::new_list_of_shape();
+        ffi::shape_list_append_shape(inputs.pin_mut(), &self.inner);
+        let history = ShapeHistory::from_handle(ffi::BRepBuilderAPI_Transform_history(
+            builder.pin_mut(),
+            &inputs,
+        ));
+
+        Ok((shape, history))
+    }
+
     /// Immutably applies a general transform, returning the new transformed shape.
     /// `mat` is row-major and zero-indexed (`mat[row][col]`).
+    ///
+    /// This converts every surface and curve to B-splines (an OCCT
+    /// `GTransform` constraint), degrading downstream modeling on the result;
+    /// prefer [`Self::transformed`] whenever the matrix is a similarity.
     #[must_use]
     pub fn gtransform(&self, mat: [[f64; 4]; 4]) -> Shape {
+        self.gtransform_with_history(mat).0
+    }
+
+    /// Like [`Self::gtransform`], additionally returning the sub-shape history
+    /// (input sub-shapes → transformed sub-shapes).
+    #[must_use]
+    pub fn gtransform_with_history(&self, mat: [[f64; 4]; 4]) -> (Shape, ShapeHistory) {
         // Flatten any transforms pre-existing on the shape, they seem to be applied
         // twice, possible OCCT bug?
         let identity = ffi::new_transform();
         let mut flatten = ffi::BRepBuilderAPI_Transform_ctor(&self.inner, &identity, true);
-        let flat = flatten.pin_mut().Shape();
+        let flat = Self::from_shape(flatten.pin_mut().Shape());
+
+        let mut inputs = ffi::new_list_of_shape();
+        ffi::shape_list_append_shape(inputs.pin_mut(), &self.inner);
+        let mut history = ShapeHistory::from_handle(ffi::BRepBuilderAPI_Transform_history(
+            flatten.pin_mut(),
+            &inputs,
+        ));
 
         let mut transform = ffi::new_gp_GTrsf();
         for row in 0..3 {
@@ -851,16 +879,28 @@ impl Shape {
         }
 
         // The constructor performs the transform; `Shape()` returns the result.
-        let mut builder = ffi::BRepBuilderAPI_GTransform_ctor(flat, &transform, true);
-        Self::from_shape(builder.pin_mut().Shape())
+        let mut builder = ffi::BRepBuilderAPI_GTransform_ctor(&flat.inner, &transform, true);
+        let result = Self::from_shape(builder.pin_mut().Shape());
+
+        // The history must chain across both stages, keyed by the flattened
+        // intermediate's sub-shapes.
+        let mut stage_inputs = ffi::new_list_of_shape();
+        ffi::shape_list_append_shape(stage_inputs.pin_mut(), &flat.inner);
+        let stage = ShapeHistory::from_handle(ffi::BRepBuilderAPI_GTransform_history(
+            builder.pin_mut(),
+            &stage_inputs,
+        ));
+        history.merge(&stage);
+
+        (result, history)
     }
 
     /// Transforms `faces` (sub-shapes of this solid) and re-solves the body
     /// around them — a direct-modeling "tweak". Neighboring faces are extended
     /// and re-intersected; the rest of the boundary is preserved.
     ///
-    /// `mat` is row-major and zero-indexed like [`Self::gtransform`], and must
-    /// be a similarity transform (rotation + translation + uniform scale).
+    /// `mat` is row-major and zero-indexed, and must be a similarity transform
+    /// (rotation + translation + uniform scale).
     ///
     /// Errs when the matrix is not a similarity, or when the body cannot be
     /// re-solved around the moved faces (a face moved past its neighbors,
@@ -873,6 +913,17 @@ impl Shape {
         faces: impl IntoIterator<Item = T>,
         mat: [[f64; 4]; 4],
     ) -> Result<Shape, Error> {
+        Ok(self.tweak_faces_with_history(faces, mat)?.0)
+    }
+
+    /// Like [`Self::tweak_faces`], additionally returning the face history of
+    /// the re-solve (input faces → their images in the result; untouched faces
+    /// that vanished are removed). Only faces are tracked.
+    pub fn tweak_faces_with_history<T: AsRef<Face>>(
+        &self,
+        faces: impl IntoIterator<Item = T>,
+        mat: [[f64; 4]; 4],
+    ) -> Result<(Shape, ShapeHistory), Error> {
         // Pre-validate: gp_Trsf::SetValues aborts (uncatchable across cxx) on
         // a non-similarity matrix.
         if !is_similarity(&mat) {
@@ -897,18 +948,25 @@ impl Shape {
             mat[2][0], mat[2][1], mat[2][2], mat[2][3],
         );
 
-        let inner = ffi::shape_tweak_faces(&self.inner, &face_list, &transform)
-            .map_err(|e| Error::TweakFailed(e.what().to_string()))?;
-        Ok(Shape { inner })
+        let mut history = ffi::BRepTools_History_ctor();
+        let inner = ffi::shape_tweak_faces_with_history(
+            &self.inner,
+            &face_list,
+            &transform,
+            history.pin_mut(),
+        )
+        .map_err(|e| Error::TweakFailed(e.what().to_string()))?;
+        Ok((Shape { inner }, ShapeHistory::from_handle(history)))
     }
 
     /// Tweak faces of one child of a compound and reassemble it with the
-    /// untouched siblings.
+    /// untouched siblings. The returned history is the child re-solve's — it
+    /// keys on the same face instances the compound contains.
     fn tweak_faces_in_compound<T: AsRef<Face>>(
         &self,
         faces: &[T],
         mat: [[f64; 4]; 4],
-    ) -> Result<Shape, Error> {
+    ) -> Result<(Shape, ShapeHistory), Error> {
         let children: Vec<Shape> = self.sub_shapes().collect();
 
         let mut owner = None;
@@ -933,12 +991,13 @@ impl Shape {
         let owner =
             owner.ok_or_else(|| Error::TweakFailed("tweak: no faces given".to_string()))?;
 
-        let tweaked = children[owner].tweak_faces(faces.iter().map(|f| f.as_ref()), mat)?;
+        let (tweaked, history) =
+            children[owner].tweak_faces_with_history(faces.iter().map(|f| f.as_ref()), mat)?;
         let rebuilt = children
             .iter()
             .enumerate()
             .map(|(i, child)| if i == owner { tweaked.clone() } else { child.clone() });
-        Ok(Compound::from_shapes(rebuilt).into())
+        Ok((Compound::from_shapes(rebuilt).into(), history))
     }
 
     // TODO(bschwind) - Convert the return type to an iterator.
@@ -1252,6 +1311,207 @@ mod tests {
         let top = top_face(&cube);
         let mat = x_rotation_about(top.center_of_mass(), std::f64::consts::FRAC_PI_2);
         assert!(cube.tweak_faces([top], mat).is_err());
+    }
+
+    #[test]
+    fn gtransform_history_maps_faces_across_both_stages() {
+        // gtransform chains two MakeShape stages (identity flatten, then the
+        // general transform); the merged history must map input faces straight
+        // to their final images or downstream history walks dead-end here.
+        let cube = Shape::cube(2.0);
+        let top = top_face(&cube);
+        let (moved, history) = cube.gtransform_with_history(translation(dvec3(0.0, 1.0, 0.0)));
+
+        assert!((max_y(&moved) - 3.0).abs() < 1e-6);
+        let images = history.modified_faces(&top);
+        assert_eq!(images.len(), 1, "each input face maps to exactly one transformed face");
+        assert!((images[0].center_of_mass().y - 3.0).abs() < 1e-6);
+
+        let back = history.source_face(&cube, &images[0]).expect("source face found");
+        assert!(back.is_same(&top));
+    }
+
+    #[test]
+    fn tweak_history_traces_every_result_face() {
+        let cube = Shape::cube(2.0);
+        let top = top_face(&cube);
+        let (tweaked, history) = cube
+            .tweak_faces_with_history([top_face(&cube)], translation(dvec3(0.0, 1.0, 0.0)))
+            .expect("translating the top face up re-solves");
+
+        // The moved face's image lands at the new height.
+        let images = history.modified_faces(&top);
+        assert_eq!(images.len(), 1);
+        assert!((images[0].center_of_mass().y - 3.0).abs() < 1e-6);
+
+        // Every result face traces back to an input face (modified or passed
+        // through unchanged) — nothing appears from nowhere in a box stretch.
+        for face in tweaked.faces() {
+            assert!(history.source_face(&cube, &face).is_some());
+        }
+    }
+
+    #[test]
+    fn tweak_with_spherical_neighbor_keeps_cavity() {
+        // Regression: a spherical neighbor face cannot be extended (the
+        // surface is closed), so its patch must become the full sphere. With a
+        // plain ExtendFace the re-solve silently returned the box with the
+        // cavity filled in; the face-survival gate must also make that a hard
+        // error rather than a silent fill.
+        let cube = Shape::cube(2.0);
+        let bite = Shape::sphere(1.0).at(dvec3(2.0, 2.0, 2.0)).build();
+        let cut = cube.subtract(&bite).expect("cut succeeds");
+        let faces_before = cut.faces().count();
+
+        let tweaked = cut
+            .shape
+            .tweak_faces([top_face(&cut.shape)], translation(dvec3(0.0, 0.5, 0.0)))
+            .expect("tweak with a spherical neighbor re-solves");
+
+        assert!((max_y(&tweaked) - 2.5).abs() < 1e-6, "top must land at y=2.5");
+        assert_eq!(
+            tweaked.faces().count(),
+            faces_before,
+            "the spherical cavity face must survive the re-solve"
+        );
+    }
+
+    #[test]
+    fn tweak_past_spherical_cavity_keeps_internal_void() {
+        // A bowl cavity in the top face, from a sphere poking 0.5 above it.
+        let cube = Shape::cube(2.0);
+        let bite = Shape::sphere(0.5).at(dvec3(1.0, 2.0, 1.0)).build();
+        let cut = cube.subtract(&bite).expect("cut succeeds");
+
+        // Raising the top while the plane still crosses the sphere deepens the
+        // bowl.
+        let small = cut
+            .shape
+            .tweak_faces([top_face(&cut.shape)], translation(dvec3(0.0, 0.25, 0.0)));
+        assert!(small.is_ok(), "top raised into the sphere must re-solve: {:?}", small.err());
+
+        // Raising it past the sphere turns the cavity into an internal void:
+        // the full-sphere patch still bounds a cell, so the re-solve keeps the
+        // bubble rather than filling it or erroring.
+        let past = cut
+            .shape
+            .tweak_faces([top_face(&cut.shape)], translation(dvec3(0.0, 1.0, 0.0)))
+            .expect("top raised past the sphere keeps the void");
+        assert!((max_y(&past) - 3.0).abs() < 1e-6);
+        assert_eq!(
+            past.faces().count(),
+            7,
+            "6 box faces + the full internal sphere must remain"
+        );
+    }
+
+    #[test]
+    fn tweak_split_cavity_pieces_re_solve() {
+        // A deep bite whose cavity crosses the sphere's seam gets split into
+        // multiple faces on the same spherical surface. Their patches must be
+        // shared (duplicate coincident patches derail face attribution) so the
+        // re-solve still succeeds with the cavity intact.
+        let cube = Shape::cube(2.0);
+        let bite = Shape::sphere(1.2).at(dvec3(1.2, 1.2, 1.2)).build();
+        let cut = cube.subtract(&bite).expect("cut succeeds");
+        let faces_before = cut.faces().count();
+
+        let tweaked = cut
+            .shape
+            .tweak_faces([top_face(&cut.shape)], translation(dvec3(0.0, 0.3, 0.0)))
+            .expect("tweak with a seam-split cavity re-solves");
+        assert_eq!(tweaked.faces().count(), faces_before, "the split cavity must survive");
+    }
+
+    #[test]
+    fn transformed_preserves_analytic_surfaces() {
+        // A GTransform converts every surface to a B-spline — hostile input
+        // for the tweak's extend-and-reintersect (and booleans, fillets, ...).
+        // `transformed` must take the type-preserving gp_Trsf path instead:
+        // the same corner-sphere tweak that re-solves on a pristine box must
+        // still re-solve on a moved one.
+        let moved = Shape::cube(2.0)
+            .transformed(translation(dvec3(3.0, 1.0, -2.0)))
+            .expect("a translation is a similarity");
+        let corner = dvec3(5.0, 3.0, 0.0);
+        let cut = moved.subtract(&Shape::sphere(1.0).at(corner).build()).expect("cut");
+
+        let tweaked = cut
+            .shape
+            .tweak_faces([top_face(&cut.shape)], translation(dvec3(0.0, 0.5, 0.0)))
+            .expect("tweak on a transformed (still analytic) box re-solves");
+        assert_eq!(tweaked.faces().count(), cut.faces().count());
+
+        let squash = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.5, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        assert!(
+            matches!(Shape::cube(2.0).transformed(squash), Err(Error::NotASimilarityTransform)),
+            "a non-uniform scale must be rejected (gtransform is the fallback)"
+        );
+    }
+
+    #[test]
+    fn tweak_on_extruded_box_with_corner_sphere() {
+        // The modeler's box recipe: a rectangle wire on the construction
+        // plane, made into a face and extruded along the normal (all analytic
+        // planes), with the bite sphere snapped to the f32 corner-vertex
+        // position. This is the interactive box→sphere-boolean→move-top-up
+        // flow that must keep re-solving.
+        let (w, d, h) = (10.0f32, 10.0f32, 5.0f32);
+        let corners = [
+            dvec3(0.0, 0.0, 0.0),
+            dvec3(w as f64, 0.0, 0.0),
+            dvec3(w as f64, 0.0, d as f64),
+            dvec3(0.0, 0.0, d as f64),
+        ];
+        let wire = Wire::from_ordered_points(corners).expect("rectangle wire");
+        let face = Face::from_wire(&wire).expect("rectangle face");
+        let world_box: Shape = face.extrude(dvec3(0.0, h as f64, 0.0)).into();
+
+        let snapped = dvec3(w as f64, h as f64, d as f64);
+        for r in [2.5, 3.0, 4.0] {
+            for dy in [1.0, 2.5] {
+                let bite = Shape::sphere(r).at(snapped).build();
+                let cut = world_box.subtract(&bite).expect("cut succeeds");
+                let tweaked = cut
+                    .shape
+                    .tweak_faces([top_face(&cut.shape)], translation(dvec3(0.0, dy, 0.0)))
+                    .unwrap_or_else(|e| panic!("tweak r={r} dy={dy} must re-solve: {e}"));
+                assert_eq!(
+                    tweaked.faces().count(),
+                    cut.faces().count(),
+                    "cavity must survive (r={r} dy={dy})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tweak_of_split_face_piece_fails_cleanly() {
+        // Bites whose rim splits the top face into pieces: moving a single
+        // piece while its siblings anchor in place is beyond the direct
+        // re-solve. It must fail cleanly — never return a silently filled or
+        // altered body. Re-solving from operation history is the recovery.
+        for center in [dvec3(1.5, 1.5, 1.0), dvec3(1.0, 1.6, 1.0)] {
+            let cube = Shape::cube(2.0);
+            let bite = Shape::sphere(1.2).at(center).build();
+            let cut = cube.subtract(&bite).expect("cut succeeds");
+            let result = cut
+                .shape
+                .tweak_faces([top_face(&cut.shape)], translation(dvec3(0.0, 0.3, 0.0)));
+            match result {
+                Err(Error::TweakFailed(message)) => assert!(
+                    message.contains("did not survive"),
+                    "unexpected tweak error: {message}"
+                ),
+                Err(other) => panic!("unexpected error kind: {other:?}"),
+                Ok(_) => panic!("moving one piece of a split top must fail the survival gate"),
+            }
+        }
     }
 
     #[test]

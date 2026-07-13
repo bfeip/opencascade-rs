@@ -160,7 +160,10 @@ impl GameApp for ViewerApp {
 
             // Temporary - Unions all edges together to display without connecting them.
             let edges = pcb.layer_edges(&BoardLayer::EdgeCuts);
-            edges.map(|edge| edge.into_shape()).reduce(|acc, edge| acc.union(&edge).into()).unwrap()
+            edges
+                .map(|edge| edge.into_shape())
+                .reduce(|acc, edge| acc.union(&edge).expect("failed to fuse edges").into())
+                .unwrap()
 
             // pcb.edge_cuts().to_face().extrude(glam::dvec3(0.0, 0.0, 1.6)).into()
         } else if let Some(example) = args.example {

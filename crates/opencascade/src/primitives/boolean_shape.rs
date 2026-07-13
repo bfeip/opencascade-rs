@@ -1,11 +1,17 @@
-use crate::primitives::{Edge, Shape};
+use opencascade_sys::ffi;
 use std::ops::{Deref, DerefMut};
+
+use crate::history::ShapeHistory;
+use crate::primitives::{Edge, Shape};
+use crate::Error;
 
 /// The result of running a boolean operation (union, subtraction, intersection)
 /// on two shapes.
 pub struct BooleanShape {
     pub shape: Shape,
     pub new_edges: Vec<Edge>,
+    /// Sub-shape history of the operation: input sub-shapes → result sub-shapes.
+    pub history: ShapeHistory,
 }
 
 impl Deref for BooleanShape {
@@ -44,4 +50,56 @@ impl BooleanShape {
     pub fn chamfer_new_edges(&self, distance: f64) -> Shape {
         self.shape.chamfer_edges(distance, &self.new_edges)
     }
+}
+
+fn edges_from_list(list: &ffi::TopTools_ListOfShape) -> Vec<Edge> {
+    ffi::shape_list_to_vector(list)
+        .iter()
+        .map(|shape| Edge::from_edge(ffi::TopoDS_cast_to_edge(shape)))
+        .collect()
+}
+
+/// The shared body of the boolean operations on [`Shape`] and `Solid`.
+/// Errs (instead of raising an uncatchable OCCT exception on `Shape()`)
+/// when the algorithm could not complete.
+pub(crate) fn cut(
+    shape: &ffi::TopoDS_Shape,
+    tool: &ffi::TopoDS_Shape,
+) -> Result<BooleanShape, Error> {
+    let mut operation = ffi::BRepAlgoAPI_Cut_ctor(shape, tool);
+    if !operation.IsDone() {
+        return Err(Error::BooleanFailed("cut"));
+    }
+    let new_edges = edges_from_list(operation.pin_mut().SectionEdges());
+    let shape = Shape::from_shape(operation.pin_mut().Shape());
+    let history = ShapeHistory::from_handle(ffi::BRepAlgoAPI_Cut_history(&operation));
+    Ok(BooleanShape { shape, new_edges, history })
+}
+
+pub(crate) fn fuse(
+    shape: &ffi::TopoDS_Shape,
+    tool: &ffi::TopoDS_Shape,
+) -> Result<BooleanShape, Error> {
+    let mut operation = ffi::BRepAlgoAPI_Fuse_ctor(shape, tool);
+    if !operation.IsDone() {
+        return Err(Error::BooleanFailed("fuse"));
+    }
+    let new_edges = edges_from_list(operation.pin_mut().SectionEdges());
+    let shape = Shape::from_shape(operation.pin_mut().Shape());
+    let history = ShapeHistory::from_handle(ffi::BRepAlgoAPI_Fuse_history(&operation));
+    Ok(BooleanShape { shape, new_edges, history })
+}
+
+pub(crate) fn common(
+    shape: &ffi::TopoDS_Shape,
+    tool: &ffi::TopoDS_Shape,
+) -> Result<BooleanShape, Error> {
+    let mut operation = ffi::BRepAlgoAPI_Common_ctor(shape, tool);
+    if !operation.IsDone() {
+        return Err(Error::BooleanFailed("common"));
+    }
+    let new_edges = edges_from_list(operation.pin_mut().SectionEdges());
+    let shape = Shape::from_shape(operation.pin_mut().Shape());
+    let history = ShapeHistory::from_handle(ffi::BRepAlgoAPI_Common_history(&operation));
+    Ok(BooleanShape { shape, new_edges, history })
 }

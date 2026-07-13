@@ -234,6 +234,7 @@ pub mod ffi {
         #[cxx_name = "construct_unique"]
         pub fn new_list_of_shape() -> UniquePtr<TopTools_ListOfShape>;
         pub fn shape_list_append_face(list: Pin<&mut TopTools_ListOfShape>, face: &TopoDS_Face);
+        pub fn shape_list_append_shape(list: Pin<&mut TopTools_ListOfShape>, shape: &TopoDS_Shape);
         pub fn Size(self: &TopTools_ListOfShape) -> i32;
 
         #[cxx_name = "list_to_vector"]
@@ -1041,6 +1042,43 @@ pub mod ffi {
             section: UniquePtr<BRepAlgoAPI_Section>,
         ) -> UniquePtr<BRepAlgoAPI_BuilderAlgo>;
 
+        // Sub-shape history (BRepTools_History)
+        type HandleBRepTools_History;
+
+        pub fn BRepTools_History_ctor() -> UniquePtr<HandleBRepTools_History>;
+        pub fn BRepTools_History_modified<'a>(
+            history: &'a HandleBRepTools_History,
+            shape: &TopoDS_Shape,
+        ) -> &'a TopTools_ListOfShape;
+        pub fn BRepTools_History_generated<'a>(
+            history: &'a HandleBRepTools_History,
+            shape: &TopoDS_Shape,
+        ) -> &'a TopTools_ListOfShape;
+        pub fn BRepTools_History_is_removed(
+            history: &HandleBRepTools_History,
+            shape: &TopoDS_Shape,
+        ) -> bool;
+        pub fn BRepTools_History_merge(
+            history: Pin<&mut HandleBRepTools_History>,
+            next: &HandleBRepTools_History,
+        );
+
+        pub fn BRepAlgoAPI_Fuse_history(
+            op: &BRepAlgoAPI_Fuse,
+        ) -> UniquePtr<HandleBRepTools_History>;
+        pub fn BRepAlgoAPI_Cut_history(op: &BRepAlgoAPI_Cut) -> UniquePtr<HandleBRepTools_History>;
+        pub fn BRepAlgoAPI_Common_history(
+            op: &BRepAlgoAPI_Common,
+        ) -> UniquePtr<HandleBRepTools_History>;
+        pub fn BRepBuilderAPI_Transform_history(
+            op: Pin<&mut BRepBuilderAPI_Transform>,
+            inputs: &TopTools_ListOfShape,
+        ) -> UniquePtr<HandleBRepTools_History>;
+        pub fn BRepBuilderAPI_GTransform_history(
+            op: Pin<&mut BRepBuilderAPI_GTransform>,
+            inputs: &TopTools_ListOfShape,
+        ) -> UniquePtr<HandleBRepTools_History>;
+
         // Geometric processor
         type gp_Ax1;
         type gp_Ax2;
@@ -1237,6 +1275,15 @@ pub mod ffi {
             shape: &TopoDS_Shape,
             faces: &TopTools_ListOfShape,
             transform: &gp_Trsf,
+        ) -> Result<UniquePtr<TopoDS_Shape>>;
+
+        /// Like `shape_tweak_faces`, additionally filling `history_out` with
+        /// the operation's face history (input faces → result faces).
+        pub fn shape_tweak_faces_with_history(
+            shape: &TopoDS_Shape,
+            faces: &TopTools_ListOfShape,
+            transform: &gp_Trsf,
+            history_out: Pin<&mut HandleBRepTools_History>,
         ) -> Result<UniquePtr<TopoDS_Shape>>;
 
         // Topology Explorer

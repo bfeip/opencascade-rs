@@ -3,6 +3,7 @@ use thiserror::Error;
 
 pub mod angle;
 pub mod bounding_box;
+pub mod history;
 pub mod kicad;
 pub mod mesh;
 pub mod primitives;
@@ -49,6 +50,8 @@ pub enum Error {
     NotASimilarityTransform,
     #[error("failed to tweak faces: {0}")]
     TweakFailed(String),
+    #[error("boolean {0} operation failed")]
+    BooleanFailed(&'static str),
 }
 
 /// Reason a `BRepBuilderAPI_MakeEdge` failed to produce an edge.
