@@ -8,6 +8,7 @@
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_Copy.hxx>
 #include <BRepBuilderAPI_GTransform.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -1293,6 +1294,10 @@ shape_tweak_faces_with_history(const TopoDS_Shape &shape, const TopTools_ListOfS
     maker.SetArguments(soup);
     maker.SetIntersect(Standard_True);
     maker.SetAvoidInternalShapes(Standard_True);
+    // The soup contains faces of the caller's shape as-is; without this the
+    // BOP may mutate them (tolerances, PCurves), corrupting the input body —
+    // which must survive unchanged when the tweak fails.
+    maker.SetNonDestructive(Standard_True);
     maker.Perform();
     if (maker.HasErrors())
       throw std::runtime_error("tweak: could not rebuild a volume from the moved faces");

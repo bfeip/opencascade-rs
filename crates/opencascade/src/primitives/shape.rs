@@ -296,6 +296,15 @@ impl Shape {
         self.inner.IsSame(&other.inner)
     }
 
+    /// A deep copy (`BRepBuilderAPI_Copy`): fresh TShapes sharing no B-Rep data
+    /// with `self`, unlike [`clone`](Clone::clone), which is shallow. Cached
+    /// triangulations are not carried over.
+    #[must_use]
+    pub fn deep_copy(&self) -> Shape {
+        let mut copy = ffi::BRepBuilderAPI_Copy_ctor(&self.inner);
+        Self::from_shape(copy.pin_mut().Shape())
+    }
+
     /// Make a shape that models empty space.
     pub fn empty() -> Self {
         // NOTE: It may seem like using `TopoDS_Shape()` directly should work,
@@ -1165,6 +1174,19 @@ mod tests {
             .iter()
             .map(|v| v.y)
             .fold(f64::NEG_INFINITY, f64::max)
+    }
+
+    #[test]
+    fn deep_copy_shares_no_brep_data() {
+        let cube = Shape::cube(2.0);
+        let copy = cube.deep_copy();
+
+        assert!(!copy.is_same(&cube));
+        for face in copy.faces() {
+            assert!(!cube.faces().any(|orig| orig.is_same(&face)));
+        }
+        // Same geometry, distinct TShapes.
+        assert!((max_y(&copy) - max_y(&cube)).abs() < 1e-9);
     }
 
     /// Extruding a face builds a prism whose top cap is the profile carried by a

@@ -1268,6 +1268,14 @@ pub mod ffi {
         pub fn Build(self: Pin<&mut BRepBuilderAPI_GTransform>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepBuilderAPI_GTransform) -> bool;
 
+        type BRepBuilderAPI_Copy;
+
+        #[cxx_name = "construct_unique"]
+        pub fn BRepBuilderAPI_Copy_ctor(shape: &TopoDS_Shape) -> UniquePtr<BRepBuilderAPI_Copy>;
+
+        pub fn Shape(self: Pin<&mut BRepBuilderAPI_Copy>) -> &TopoDS_Shape;
+        pub fn IsDone(self: &BRepBuilderAPI_Copy) -> bool;
+
         /// Direct-modeling tweak: rigidly transform `faces` (sub-shapes of the
         /// solid `shape`) and re-solve the body around them. Errs when the
         /// re-solve is impossible or yields an invalid solid.
