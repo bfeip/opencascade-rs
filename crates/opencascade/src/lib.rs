@@ -50,8 +50,8 @@ pub enum Error {
     NotASimilarityTransform,
     #[error("failed to tweak faces: {0}")]
     TweakFailed(String),
-    #[error("boolean {0} operation failed")]
-    BooleanFailed(&'static str),
+    #[error("boolean {0} operation failed: {1}")]
+    BooleanFailed(&'static str, String),
 }
 
 /// Reason a `BRepBuilderAPI_MakeEdge` failed to produce an edge.

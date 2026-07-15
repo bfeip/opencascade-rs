@@ -12,6 +12,10 @@ pub struct BooleanShape {
     pub new_edges: Vec<Edge>,
     /// Sub-shape history of the operation: input sub-shapes → result sub-shapes.
     pub history: ShapeHistory,
+    /// The algorithm's warning report (`BOPAlgo_Options::DumpWarnings`), or
+    /// `None` when it completed clean. Warnings flag degenerate input
+    /// configurations whose result may be wrong despite reported success.
+    pub warnings: Option<String>,
 }
 
 impl Deref for BooleanShape {
@@ -59,47 +63,80 @@ fn edges_from_list(list: &ffi::TopTools_ListOfShape) -> Vec<Edge> {
         .collect()
 }
 
+fn non_empty(report: String) -> Option<String> {
+    let trimmed = report.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
 /// The shared body of the boolean operations on [`Shape`] and `Solid`.
 /// Errs (instead of raising an uncatchable OCCT exception on `Shape()`)
 /// when the algorithm could not complete.
+///
+/// `fuzz` is the additional intersection tolerance
+/// (`BOPAlgo_Options::SetFuzzyValue`); values at or below OCCT's default
+/// (`Precision::Confusion`, 1e-7) leave the default in place.
 pub(crate) fn cut(
     shape: &ffi::TopoDS_Shape,
     tool: &ffi::TopoDS_Shape,
+    fuzz: f64,
 ) -> Result<BooleanShape, Error> {
-    let mut operation = ffi::BRepAlgoAPI_Cut_ctor(shape, tool);
+    let mut operation = ffi::BRepAlgoAPI_Cut_ctor_empty();
+    operation.pin_mut().SetArguments(single(shape).as_ref().unwrap());
+    operation.pin_mut().SetTools(single(tool).as_ref().unwrap());
+    ffi::BRepAlgoAPI_Cut_set_fuzzy_value(operation.pin_mut(), fuzz);
+    operation.pin_mut().Build(&ffi::Message_ProgressRange_ctor());
     if !operation.IsDone() {
-        return Err(Error::BooleanFailed("cut"));
+        return Err(Error::BooleanFailed("cut", ffi::BRepAlgoAPI_Cut_errors(&operation)));
     }
+    let warnings = non_empty(ffi::BRepAlgoAPI_Cut_warnings(&operation));
     let new_edges = edges_from_list(operation.pin_mut().SectionEdges());
     let shape = Shape::from_shape(operation.pin_mut().Shape());
     let history = ShapeHistory::from_handle(ffi::BRepAlgoAPI_Cut_history(&operation));
-    Ok(BooleanShape { shape, new_edges, history })
+    Ok(BooleanShape { shape, new_edges, history, warnings })
 }
 
 pub(crate) fn fuse(
     shape: &ffi::TopoDS_Shape,
     tool: &ffi::TopoDS_Shape,
+    fuzz: f64,
 ) -> Result<BooleanShape, Error> {
-    let mut operation = ffi::BRepAlgoAPI_Fuse_ctor(shape, tool);
+    let mut operation = ffi::BRepAlgoAPI_Fuse_ctor_empty();
+    operation.pin_mut().SetArguments(single(shape).as_ref().unwrap());
+    operation.pin_mut().SetTools(single(tool).as_ref().unwrap());
+    ffi::BRepAlgoAPI_Fuse_set_fuzzy_value(operation.pin_mut(), fuzz);
+    operation.pin_mut().Build(&ffi::Message_ProgressRange_ctor());
     if !operation.IsDone() {
-        return Err(Error::BooleanFailed("fuse"));
+        return Err(Error::BooleanFailed("fuse", ffi::BRepAlgoAPI_Fuse_errors(&operation)));
     }
+    let warnings = non_empty(ffi::BRepAlgoAPI_Fuse_warnings(&operation));
     let new_edges = edges_from_list(operation.pin_mut().SectionEdges());
     let shape = Shape::from_shape(operation.pin_mut().Shape());
     let history = ShapeHistory::from_handle(ffi::BRepAlgoAPI_Fuse_history(&operation));
-    Ok(BooleanShape { shape, new_edges, history })
+    Ok(BooleanShape { shape, new_edges, history, warnings })
 }
 
 pub(crate) fn common(
     shape: &ffi::TopoDS_Shape,
     tool: &ffi::TopoDS_Shape,
+    fuzz: f64,
 ) -> Result<BooleanShape, Error> {
-    let mut operation = ffi::BRepAlgoAPI_Common_ctor(shape, tool);
+    let mut operation = ffi::BRepAlgoAPI_Common_ctor_empty();
+    operation.pin_mut().SetArguments(single(shape).as_ref().unwrap());
+    operation.pin_mut().SetTools(single(tool).as_ref().unwrap());
+    ffi::BRepAlgoAPI_Common_set_fuzzy_value(operation.pin_mut(), fuzz);
+    operation.pin_mut().Build(&ffi::Message_ProgressRange_ctor());
     if !operation.IsDone() {
-        return Err(Error::BooleanFailed("common"));
+        return Err(Error::BooleanFailed("common", ffi::BRepAlgoAPI_Common_errors(&operation)));
     }
+    let warnings = non_empty(ffi::BRepAlgoAPI_Common_warnings(&operation));
     let new_edges = edges_from_list(operation.pin_mut().SectionEdges());
     let shape = Shape::from_shape(operation.pin_mut().Shape());
     let history = ShapeHistory::from_handle(ffi::BRepAlgoAPI_Common_history(&operation));
-    Ok(BooleanShape { shape, new_edges, history })
+    Ok(BooleanShape { shape, new_edges, history, warnings })
+}
+
+fn single(shape: &ffi::TopoDS_Shape) -> cxx::UniquePtr<ffi::TopTools_ListOfShape> {
+    let mut list = ffi::new_list_of_shape();
+    ffi::shape_list_append_shape(list.pin_mut(), shape);
+    list
 }

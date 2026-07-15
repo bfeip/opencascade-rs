@@ -145,11 +145,12 @@ pub struct SphereBuilder {
     center: DVec3,
     radius: f64,
     z_angle: f64,
+    axis: DVec3,
 }
 
 impl SphereBuilder {
     pub fn build(self) -> Shape {
-        let axis = make_axis_2(self.center, DVec3::Z);
+        let axis = make_axis_2(self.center, self.axis);
         let mut make_shere = ffi::BRepPrimAPI_MakeSphere_ctor(&axis, self.radius, self.z_angle);
 
         Shape::from_shape(make_shere.pin_mut().Shape())
@@ -157,6 +158,13 @@ impl SphereBuilder {
 
     pub fn at(mut self, center: DVec3) -> Self {
         self.center = center;
+        self
+    }
+
+    /// Polar axis of the sphere's parametrization: the
+    /// poles lie along it and the seam meridian in a plane containing it.
+    pub fn axis(mut self, axis: DVec3) -> Self {
+        self.axis = axis;
         self
     }
 
@@ -305,6 +313,14 @@ impl Shape {
         Self::from_shape(copy.pin_mut().Shape())
     }
 
+    /// Enclosed volume (`BRepGProp::VolumeProperties`). Zero for shapes with
+    /// no solid content; negative for inside-out shells.
+    pub fn volume(&self) -> f64 {
+        let mut props = ffi::GProp_GProps_ctor();
+        ffi::BRepGProp_VolumeProperties(&self.inner, props.pin_mut());
+        props.Mass()
+    }
+
     /// Make a shape that models empty space.
     pub fn empty() -> Self {
         // NOTE: It may seem like using `TopoDS_Shape()` directly should work,
@@ -395,7 +411,12 @@ impl Shape {
     }
 
     pub fn sphere(radius: f64) -> SphereBuilder {
-        SphereBuilder { center: DVec3::ZERO, radius, z_angle: std::f64::consts::TAU }
+        SphereBuilder {
+            center: DVec3::ZERO,
+            radius,
+            z_angle: std::f64::consts::TAU,
+            axis: DVec3::Z,
+        }
     }
 
     pub fn cone() -> ConeBuilder {
@@ -508,7 +529,17 @@ impl Shape {
     }
 
     pub fn subtract(&self, other: &Shape) -> Result<BooleanShape, Error> {
-        boolean_shape::cut(&self.inner, &other.inner)
+        boolean_shape::cut(&self.inner, &other.inner, 0.0)
+    }
+
+    /// [`subtract`](Self::subtract) with an additional intersection tolerance:
+    /// geometry closer than `fuzz` is treated as coincident.
+    /// 
+    /// Use when the inputs' placement precision is coarser than OCCT's default
+    /// 1e-7 (e.g. f32-derived coordinates), where near-coincident seams/faces
+    /// otherwise derail the classification.
+    pub fn subtract_with_fuzz(&self, other: &Shape, fuzz: f64) -> Result<BooleanShape, Error> {
+        boolean_shape::cut(&self.inner, &other.inner, fuzz)
     }
 
     pub fn read_step_from_file(path: impl AsRef<Path>) -> Result<Self, Error> {
@@ -683,11 +714,23 @@ impl Shape {
     }
 
     pub fn union(&self, other: &Shape) -> Result<BooleanShape, Error> {
-        boolean_shape::fuse(&self.inner, &other.inner)
+        boolean_shape::fuse(&self.inner, &other.inner, 0.0)
+    }
+
+    /// [`union`](Self::union) with an additional intersection tolerance; see
+    /// [`subtract_with_fuzz`](Self::subtract_with_fuzz).
+    pub fn union_with_fuzz(&self, other: &Shape, fuzz: f64) -> Result<BooleanShape, Error> {
+        boolean_shape::fuse(&self.inner, &other.inner, fuzz)
     }
 
     pub fn intersect(&self, other: &Shape) -> Result<BooleanShape, Error> {
-        boolean_shape::common(&self.inner, &other.inner)
+        boolean_shape::common(&self.inner, &other.inner, 0.0)
+    }
+
+    /// [`intersect`](Self::intersect) with an additional intersection
+    /// tolerance; see [`subtract_with_fuzz`](Self::subtract_with_fuzz).
+    pub fn intersect_with_fuzz(&self, other: &Shape, fuzz: f64) -> Result<BooleanShape, Error> {
+        boolean_shape::common(&self.inner, &other.inner, fuzz)
     }
 
     pub fn write_stl<P: AsRef<Path>>(&self, path: P) -> Result<(), Error> {
@@ -1643,5 +1686,242 @@ mod tests {
     #[test]
     fn box_has_no_seam_edges() {
         assert!(Shape::cube(1.0).seam_edges().is_empty());
+    }
+
+    fn half_ball_volume(r: f64) -> f64 {
+        2.0 / 3.0 * std::f64::consts::PI * r * r * r
+    }
+
+    /// A sphere whose center lies exactly on a box face plane has its seam
+    /// meridian and/or pole edges lying in the cutting plane. OCCT handles
+    /// this *exact* coincidence (and one-ulp neighbors at this scale) — the
+    /// dangerous band is a few microns off the plane at mm scale, covered by
+    /// [`subtract_with_fuzz_rescues_near_coincident_seam`].
+    #[test]
+    fn subtract_sphere_snapped_to_face_removes_volume() {
+        let size = 2.0f64;
+        let cube = Shape::cube(size);
+        let cube_vol = cube.volume();
+
+        let snapped = 2.0f32;
+        let offsets = [
+            ("coplanar", 0.0f64),
+            ("+1ulp", f32::from_bits(snapped.to_bits() + 1) as f64 - snapped as f64),
+            ("-1ulp", f32::from_bits(snapped.to_bits() - 1) as f64 - snapped as f64),
+        ];
+        // Face-plane axis: y = top/bottom (plane contains seam AND both poles),
+        // x = side (plane contains both poles), z = side (transversal).
+        let axes = [("y", 1usize), ("x", 0), ("z", 2)];
+        let centers = [0.7f32, 1.0, 1.3];
+        let radii = [0.3f32, 0.45, 0.5, 0.6, 0.65];
+
+        struct SnapCase {
+            axis_name: &'static str,
+            axis: usize,
+            offset_name: &'static str,
+            offset: f64,
+            cu: f32,
+            cv: f32,
+            radius: f32,
+        }
+
+        impl SnapCase {
+            /// Sphere center: snapped onto the face plane along `axis`, the
+            /// free in-plane coordinates on the other two.
+            fn center(&self, size: f64) -> glam::DVec3 {
+                let (u_axis, v_axis) = match self.axis {
+                    0 => (1, 2),
+                    1 => (0, 2),
+                    _ => (0, 1),
+                };
+                let mut c = [0.0f64; 3];
+                c[self.axis] = size + self.offset;
+                c[u_axis] = self.cu as f64;
+                c[v_axis] = self.cv as f64;
+                dvec3(c[0], c[1], c[2])
+            }
+
+            fn label(&self) -> String {
+                format!(
+                    "{}/{} c=({},{}) r={}",
+                    self.axis_name, self.offset_name, self.cu, self.cv, self.radius
+                )
+            }
+        }
+
+        let mut cases = Vec::new();
+        for (axis_name, axis) in axes {
+            for (offset_name, offset) in offsets {
+                for cu in centers {
+                    for cv in centers {
+                        for radius in radii {
+                            cases.push(SnapCase {
+                                axis_name,
+                                axis,
+                                offset_name,
+                                offset,
+                                cu,
+                                cv,
+                                radius,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut failures = Vec::new();
+        for case in &cases {
+            let r = case.radius as f64;
+            let sphere = Shape::sphere(r).at(case.center(size)).build();
+            let expected = half_ball_volume(r);
+            match cube.subtract(&sphere) {
+                Ok(cut) => {
+                    let removed = cube_vol - cut.volume();
+                    if removed < 0.25 * expected {
+                        failures.push(format!(
+                            "{}: removed {removed:.6} of expected {expected:.6}",
+                            case.label()
+                        ));
+                    }
+                },
+                Err(err) => failures.push(format!("{}: cut errored: {err}", case.label())),
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "{} of {} snapped subtracts removed no material:\n{}",
+            failures.len(),
+            cases.len(),
+            failures.join("\n")
+        );
+    }
+
+    /// The modeler's box recipe: a rectangle wire extruded along its normal
+    /// (all analytic planes).
+    fn extruded_box(w: f64, h: f64, d: f64) -> Shape {
+        let wire = Wire::from_ordered_points([
+            dvec3(0.0, 0.0, 0.0),
+            dvec3(w, 0.0, 0.0),
+            dvec3(w, 0.0, d),
+            dvec3(0.0, 0.0, d),
+        ])
+        .unwrap();
+        Face::from_wire(&wire).unwrap().extrude(dvec3(0.0, h, 0.0)).into()
+    }
+
+    /// Regression for the imprint-only subtract: a sphere whose seam/pole
+    /// edges lie a few microns off the cutting plane derails the BOP
+    /// classification. As of the vendored OCCT 7.8.1, eight of these
+    /// configurations "succeed" while removing *no* material (only imprinting
+    /// the section circle) and two more silently remove the wrong amount (~88%).
+    /// A fuzzy value sized to the placement error (a few f32 ulps of the extent)
+    /// must make every cut exact.
+    #[test]
+    fn subtract_with_fuzz_rescues_near_coincident_seam() {
+        let world_box = extruded_box(100.0, 50.0, 100.0);
+        let box_vol = world_box.volume();
+        let fuzz = 4.0 * f32::EPSILON as f64 * 100.0;
+
+        // Sphere centers a few microns off a face plane, all far enough from
+        // the face rims that the true overlap is exactly a half ball.
+        for (label, center, r) in [
+            ("top +4e-6 a", dvec3(40.0, 50.0 + 4e-6, 60.0), 20.0),
+            ("top +4e-6 b", dvec3(75.0, 50.0 + 4e-6, 40.0), 22.0),
+            ("top -4e-6", dvec3(40.0, 50.0 - 4e-6, 60.0), 20.0),
+            ("top +1e-5", dvec3(25.0, 50.0 + 1e-5, 25.0), 15.0),
+            ("top -1e-5", dvec3(60.0, 50.0 - 1e-5, 70.0), 18.0),
+            ("top +5e-7", dvec3(40.0, 50.0 + 5e-7, 60.0), 20.0),
+            ("bottom +4e-6", dvec3(50.0, 4e-6, 50.0), 20.0),
+            ("bottom -4e-6", dvec3(50.0, -4e-6, 50.0), 20.0),
+            ("side x=0 +4e-6", dvec3(4e-6, 25.0, 50.0), 20.0),
+            ("side x=100 -4e-6", dvec3(100.0 - 4e-6, 25.0, 50.0), 20.0),
+            ("side x=100 -1e-5", dvec3(100.0 - 1e-5, 20.0, 70.0), 15.0),
+        ] {
+            let sphere = Shape::sphere(r).at(center).build();
+            let cut = world_box.subtract_with_fuzz(&sphere, fuzz).expect("cut is done");
+            let removed = box_vol - cut.volume();
+            let expected = half_ball_volume(r);
+            assert!(
+                (removed - expected).abs() < 5e-3 * expected,
+                "{label}: removed {removed:.4}, expected {expected:.4}"
+            );
+        }
+    }
+
+    /// Randomized sweep mirroring the modeler's recipe end to end: a
+    /// wire-extruded box at mm scale, sphere centers face-snapped through f32
+    /// (including the few-microns-off near-coincidence band that derails the
+    /// default-axis parametrization — see
+    /// [`subtract_with_fuzz_rescues_near_coincident_seam`]), booleans run on
+    /// deep copies. With the polar axis skewed off every world axis, no
+    /// axis-aligned cutting plane comes near the seam or poles, and every cut
+    /// must remove its half ball even without a fuzzy value. Deterministic
+    /// LCG seed.
+    #[test]
+    fn subtract_skewed_axis_sphere_near_coincident_sweep() {
+        let (w, h, d) = (100.0f64, 50.0, 100.0);
+        let world_box = extruded_box(w, h, d);
+        let box_vol = world_box.volume();
+
+        let mut state = 0x2545F4914F6CDD1Du64;
+        let mut rand01 = move || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((state >> 33) as f64) / ((1u64 << 31) as f64)
+        };
+
+        let dims = [w, h, d];
+        let mut failures = Vec::new();
+        let total = 800;
+        for case in 0..total {
+            // A face plane: axis 0/1/2, near or far side.
+            let axis = (rand01() * 3.0) as usize % 3;
+            let far = rand01() < 0.5;
+            let plane = if far { dims[axis] } else { 0.0 };
+
+            // Radius, then in-plane coordinates at least r from the face rim so
+            // the overlap is exactly a half ball. All snapped through f32 like
+            // the modeler's picks; the plane coordinate additionally lands in
+            // the near-coincidence band.
+            let r = (5.0 + rand01() * 20.0) as f32 as f64;
+            let (u_axis, v_axis) = match axis {
+                0 => (1, 2),
+                1 => (0, 2),
+                _ => (0, 1),
+            };
+            let near = [0.0, 1e-7, -1e-7, 5e-7, -5e-7, 1e-6, -1e-6, 4e-6, -4e-6, 1e-5, -1e-5];
+            let offset = near[(rand01() * near.len() as f64) as usize % near.len()];
+            let mut c = [0.0f64; 3];
+            c[axis] = plane as f32 as f64 + offset;
+            c[u_axis] = (r + rand01() * (dims[u_axis] - 2.0 * r)) as f32 as f64;
+            c[v_axis] = (r + rand01() * (dims[v_axis] - 2.0 * r)) as f32 as f64;
+
+            let sphere = Shape::sphere(r)
+                .at(dvec3(c[0], c[1], c[2]))
+                .axis(dvec3(1.0, 2.0, 3.0).normalize())
+                .build();
+            let expected = half_ball_volume(r);
+            match world_box.deep_copy().subtract(&sphere.deep_copy()) {
+                Ok(cut) => {
+                    let removed = box_vol - cut.volume();
+                    if (removed - expected).abs() > 5e-3 * expected {
+                        failures.push(format!(
+                            "case {case}: axis {axis} offset {offset:+.0e} c=({:.4},{:.4},{:.4}) r={r:.4}: removed {removed:.4} of expected {expected:.4}",
+                            c[0], c[1], c[2]
+                        ));
+                    }
+                },
+                Err(err) => failures.push(format!("case {case}: cut errored: {err}")),
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "{} of {} snapped subtracts came out wrong (first 10):\n{}",
+            failures.len(),
+            total,
+            failures.iter().take(10).map(String::as_str).collect::<Vec<_>>().join("\n")
+        );
     }
 }

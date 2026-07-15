@@ -991,11 +991,22 @@ pub mod ffi {
             shape_2: &TopoDS_Shape,
         ) -> UniquePtr<BRepAlgoAPI_Fuse>;
 
+        /// Empty operation: set arguments, tools and options, then `Build`.
+        #[cxx_name = "construct_unique"]
+        pub fn BRepAlgoAPI_Fuse_ctor_empty() -> UniquePtr<BRepAlgoAPI_Fuse>;
+
         pub fn Shape(self: Pin<&mut BRepAlgoAPI_Fuse>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepAlgoAPI_Fuse>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepAlgoAPI_Fuse) -> bool;
         pub fn SectionEdges(self: Pin<&mut BRepAlgoAPI_Fuse>) -> &TopTools_ListOfShape;
         pub fn SetGlue(self: Pin<&mut BRepAlgoAPI_Fuse>, glue: BOPAlgo_GlueEnum);
+        pub fn SetArguments(self: Pin<&mut BRepAlgoAPI_Fuse>, args: &TopTools_ListOfShape);
+        pub fn SetTools(self: Pin<&mut BRepAlgoAPI_Fuse>, tools: &TopTools_ListOfShape);
+        pub fn BRepAlgoAPI_Fuse_set_fuzzy_value(op: Pin<&mut BRepAlgoAPI_Fuse>, fuzz: f64);
+        pub fn BRepAlgoAPI_Fuse_has_warnings(op: &BRepAlgoAPI_Fuse) -> bool;
+        pub fn BRepAlgoAPI_Fuse_has_errors(op: &BRepAlgoAPI_Fuse) -> bool;
+        pub fn BRepAlgoAPI_Fuse_warnings(op: &BRepAlgoAPI_Fuse) -> String;
+        pub fn BRepAlgoAPI_Fuse_errors(op: &BRepAlgoAPI_Fuse) -> String;
 
         type BRepAlgoAPI_Cut;
 
@@ -1005,6 +1016,10 @@ pub mod ffi {
             shape_2: &TopoDS_Shape,
         ) -> UniquePtr<BRepAlgoAPI_Cut>;
 
+        /// Empty operation: set arguments, tools and options, then `Build`.
+        #[cxx_name = "construct_unique"]
+        pub fn BRepAlgoAPI_Cut_ctor_empty() -> UniquePtr<BRepAlgoAPI_Cut>;
+
         pub fn Shape(self: Pin<&mut BRepAlgoAPI_Cut>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepAlgoAPI_Cut>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepAlgoAPI_Cut) -> bool;
@@ -1013,6 +1028,13 @@ pub mod ffi {
             shape: &'a TopoDS_Shape,
         ) -> &'a TopTools_ListOfShape;
         pub fn SectionEdges(self: Pin<&mut BRepAlgoAPI_Cut>) -> &TopTools_ListOfShape;
+        pub fn SetArguments(self: Pin<&mut BRepAlgoAPI_Cut>, args: &TopTools_ListOfShape);
+        pub fn SetTools(self: Pin<&mut BRepAlgoAPI_Cut>, tools: &TopTools_ListOfShape);
+        pub fn BRepAlgoAPI_Cut_set_fuzzy_value(op: Pin<&mut BRepAlgoAPI_Cut>, fuzz: f64);
+        pub fn BRepAlgoAPI_Cut_has_warnings(op: &BRepAlgoAPI_Cut) -> bool;
+        pub fn BRepAlgoAPI_Cut_has_errors(op: &BRepAlgoAPI_Cut) -> bool;
+        pub fn BRepAlgoAPI_Cut_warnings(op: &BRepAlgoAPI_Cut) -> String;
+        pub fn BRepAlgoAPI_Cut_errors(op: &BRepAlgoAPI_Cut) -> String;
 
         type BRepAlgoAPI_Common;
 
@@ -1022,10 +1044,21 @@ pub mod ffi {
             shape_2: &TopoDS_Shape,
         ) -> UniquePtr<BRepAlgoAPI_Common>;
 
+        /// Empty operation: set arguments, tools and options, then `Build`.
+        #[cxx_name = "construct_unique"]
+        pub fn BRepAlgoAPI_Common_ctor_empty() -> UniquePtr<BRepAlgoAPI_Common>;
+
         pub fn Shape(self: Pin<&mut BRepAlgoAPI_Common>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepAlgoAPI_Common>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepAlgoAPI_Common) -> bool;
         pub fn SectionEdges(self: Pin<&mut BRepAlgoAPI_Common>) -> &TopTools_ListOfShape;
+        pub fn SetArguments(self: Pin<&mut BRepAlgoAPI_Common>, args: &TopTools_ListOfShape);
+        pub fn SetTools(self: Pin<&mut BRepAlgoAPI_Common>, tools: &TopTools_ListOfShape);
+        pub fn BRepAlgoAPI_Common_set_fuzzy_value(op: Pin<&mut BRepAlgoAPI_Common>, fuzz: f64);
+        pub fn BRepAlgoAPI_Common_has_warnings(op: &BRepAlgoAPI_Common) -> bool;
+        pub fn BRepAlgoAPI_Common_has_errors(op: &BRepAlgoAPI_Common) -> bool;
+        pub fn BRepAlgoAPI_Common_warnings(op: &BRepAlgoAPI_Common) -> String;
+        pub fn BRepAlgoAPI_Common_errors(op: &BRepAlgoAPI_Common) -> String;
 
         type BRepAlgoAPI_Section;
 

@@ -62,6 +62,7 @@ impl Solid {
         boolean_shape::cut(
             ffi::cast_solid_to_shape(&self.inner),
             ffi::cast_solid_to_shape(&other.inner),
+            0.0,
         )
     }
 
@@ -69,6 +70,7 @@ impl Solid {
         boolean_shape::fuse(
             ffi::cast_solid_to_shape(&self.inner),
             ffi::cast_solid_to_shape(&other.inner),
+            0.0,
         )
     }
 
@@ -76,6 +78,7 @@ impl Solid {
         boolean_shape::common(
             ffi::cast_solid_to_shape(&self.inner),
             ffi::cast_solid_to_shape(&other.inner),
+            0.0,
         )
     }
 

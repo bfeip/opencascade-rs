@@ -1136,6 +1136,58 @@ BRepAlgoAPI_Common_history(const BRepAlgoAPI_Common &op) {
   return std::unique_ptr<HandleBRepTools_History>(new HandleBRepTools_History(op.History()));
 }
 
+// BOPAlgo_Options is a protected base re-exposed via using-declarations;
+// pointer-to-member binding cannot cross it, so these are free functions.
+inline void BRepAlgoAPI_Fuse_set_fuzzy_value(BRepAlgoAPI_Fuse &op, double fuzz) { op.SetFuzzyValue(fuzz); }
+inline bool BRepAlgoAPI_Fuse_has_warnings(const BRepAlgoAPI_Fuse &op) { return op.HasWarnings(); }
+inline bool BRepAlgoAPI_Fuse_has_errors(const BRepAlgoAPI_Fuse &op) { return op.HasErrors(); }
+
+inline void BRepAlgoAPI_Cut_set_fuzzy_value(BRepAlgoAPI_Cut &op, double fuzz) { op.SetFuzzyValue(fuzz); }
+inline bool BRepAlgoAPI_Cut_has_warnings(const BRepAlgoAPI_Cut &op) { return op.HasWarnings(); }
+inline bool BRepAlgoAPI_Cut_has_errors(const BRepAlgoAPI_Cut &op) { return op.HasErrors(); }
+
+inline void BRepAlgoAPI_Common_set_fuzzy_value(BRepAlgoAPI_Common &op, double fuzz) { op.SetFuzzyValue(fuzz); }
+inline bool BRepAlgoAPI_Common_has_warnings(const BRepAlgoAPI_Common &op) { return op.HasWarnings(); }
+inline bool BRepAlgoAPI_Common_has_errors(const BRepAlgoAPI_Common &op) { return op.HasErrors(); }
+
+// Warning/error reports of a boolean operation (BOPAlgo_Options::DumpWarnings /
+// DumpErrors adapted from Standard_OStream to a string). Empty when clean.
+inline rust::String BRepAlgoAPI_Fuse_warnings(const BRepAlgoAPI_Fuse &op) {
+  std::ostringstream stream;
+  op.DumpWarnings(stream);
+  return rust::String(stream.str());
+}
+
+inline rust::String BRepAlgoAPI_Fuse_errors(const BRepAlgoAPI_Fuse &op) {
+  std::ostringstream stream;
+  op.DumpErrors(stream);
+  return rust::String(stream.str());
+}
+
+inline rust::String BRepAlgoAPI_Cut_warnings(const BRepAlgoAPI_Cut &op) {
+  std::ostringstream stream;
+  op.DumpWarnings(stream);
+  return rust::String(stream.str());
+}
+
+inline rust::String BRepAlgoAPI_Cut_errors(const BRepAlgoAPI_Cut &op) {
+  std::ostringstream stream;
+  op.DumpErrors(stream);
+  return rust::String(stream.str());
+}
+
+inline rust::String BRepAlgoAPI_Common_warnings(const BRepAlgoAPI_Common &op) {
+  std::ostringstream stream;
+  op.DumpWarnings(stream);
+  return rust::String(stream.str());
+}
+
+inline rust::String BRepAlgoAPI_Common_errors(const BRepAlgoAPI_Common &op) {
+  std::ostringstream stream;
+  op.DumpErrors(stream);
+  return rust::String(stream.str());
+}
+
 // Detached history of a completed MakeShape-derived algorithm over the given
 // inputs (the BRepTools_History template constructor).
 inline std::unique_ptr<HandleBRepTools_History>
