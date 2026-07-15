@@ -1326,6 +1326,8 @@ pub mod ffi {
             last: &mut f64,
         ) -> UniquePtr<HandleGeomCurve>;
         pub fn BRep_Tool_Pnt(vertex: &TopoDS_Vertex) -> UniquePtr<gp_Pnt>;
+        pub fn BRep_Tool_Degenerated(edge: &TopoDS_Edge) -> bool;
+        pub fn BRep_Tool_IsClosed(edge: &TopoDS_Edge, face: &TopoDS_Face) -> bool;
         pub fn BRep_Tool_Triangulation(
             face: &TopoDS_Face,
             location: Pin<&mut TopLoc_Location>,

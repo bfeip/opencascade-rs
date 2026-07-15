@@ -754,6 +754,19 @@ impl Shape {
         FaceIterator { explorer }
     }
 
+    /// Edges that occur as a seam on at least one face of this shape.
+    pub fn seam_edges(&self) -> Vec<Edge> {
+        let mut seams: Vec<Edge> = Vec::new();
+        for face in self.faces() {
+            for edge in face.edges() {
+                if edge.is_seam(&face) && !seams.iter().any(|s| s.is_same(&edge)) {
+                    seams.push(edge);
+                }
+            }
+        }
+        seams
+    }
+
     pub fn vertices(&self) -> VertexIterator {
         let explorer = ffi::TopExp_Explorer_ctor(&self.inner, ffi::TopAbs_ShapeEnum::TopAbs_VERTEX);
         VertexIterator { explorer }
@@ -1140,7 +1153,7 @@ impl ChamferMaker {
 #[cfg(test)]
 mod tests {
     use super::Shape;
-    use crate::primitives::{Compound, Face, ShapeType, Wire};
+    use crate::primitives::{Compound, Edge, Face, ShapeType, Wire};
     use crate::Error;
     use glam::dvec3;
 
@@ -1563,5 +1576,50 @@ mod tests {
             },
             Err(err) => println!("fillet-adjacent tweak declined: {err}"),
         }
+    }
+
+    /// Deduplicates explorer occurrences (a seam is yielded once per wire traversal).
+    fn unique_edges(edges: impl Iterator<Item = Edge>) -> Vec<Edge> {
+        let mut unique: Vec<Edge> = Vec::new();
+        for edge in edges {
+            if !unique.iter().any(|e| e.is_same(&edge)) {
+                unique.push(edge);
+            }
+        }
+        unique
+    }
+
+    #[test]
+    fn sphere_has_one_seam_and_two_degenerate_edges() {
+        let sphere = Shape::sphere(1.0).build();
+
+        assert_eq!(sphere.seam_edges().len(), 1);
+
+        let degenerate = unique_edges(sphere.edges().filter(Edge::is_degenerated));
+        assert_eq!(degenerate.len(), 2);
+
+        // The sphere's only edges are the seam meridian and the two pole edges.
+        assert_eq!(unique_edges(sphere.edges()).len(), 3);
+    }
+
+    #[test]
+    fn cylinder_has_one_seam_and_real_rim_edges() {
+        let cylinder = Shape::cylinder_radius_height(1.0, 2.0);
+
+        let seams = cylinder.seam_edges();
+        assert_eq!(seams.len(), 1);
+        assert_eq!(cylinder.edges().filter(Edge::is_degenerated).count(), 0);
+
+        // The two rim circles are real edges, not seams.
+        let rims = unique_edges(cylinder.edges())
+            .into_iter()
+            .filter(|e| !seams.iter().any(|s| s.is_same(e)))
+            .count();
+        assert_eq!(rims, 2);
+    }
+
+    #[test]
+    fn box_has_no_seam_edges() {
+        assert!(Shape::cube(1.0).seam_edges().is_empty());
     }
 }

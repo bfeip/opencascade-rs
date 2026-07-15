@@ -375,6 +375,12 @@ inline std::unique_ptr<gp_Pnt> BRep_Tool_Pnt(const TopoDS_Vertex &vertex) {
   return std::unique_ptr<gp_Pnt>(new gp_Pnt(BRep_Tool::Pnt(vertex)));
 }
 
+inline bool BRep_Tool_Degenerated(const TopoDS_Edge &edge) { return BRep_Tool::Degenerated(edge); }
+
+inline bool BRep_Tool_IsClosed(const TopoDS_Edge &edge, const TopoDS_Face &face) {
+  return BRep_Tool::IsClosed(edge, face);
+}
+
 inline std::unique_ptr<gp_Trsf> TopLoc_Location_Transformation(const TopLoc_Location &location) {
   return std::unique_ptr<gp_Trsf>(new gp_Trsf(location.Transformation()));
 }

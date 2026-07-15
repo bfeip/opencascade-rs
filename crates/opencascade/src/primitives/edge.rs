@@ -59,6 +59,17 @@ impl Edge {
         ffi::cast_edge_to_shape(&self.inner).IsSame(ffi::cast_edge_to_shape(&other.inner))
     }
 
+    /// Returns `true` if this edge has no 3D curve (e.g. a pole edge of a sphere).
+    pub fn is_degenerated(&self) -> bool {
+        ffi::BRep_Tool_Degenerated(&self.inner)
+    }
+
+    /// Returns `true` if this edge is a seam of `face`, i.e. it occurs twice in
+    /// the face's boundary with two distinct parametric curves.
+    pub fn is_seam(&self, face: &Face) -> bool {
+        ffi::BRep_Tool_IsClosed(&self.inner, &face.inner)
+    }
+
     fn from_make_edge(
         mut make_edge: UniquePtr<ffi::BRepBuilderAPI_MakeEdge>,
     ) -> Result<Self, Error> {
