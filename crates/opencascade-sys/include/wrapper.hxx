@@ -125,6 +125,22 @@
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
+// cxx exception glue for `Result<>` bindings. OCCT exceptions derive from
+// Standard_Failure, not std::exception, so cxx's default trycatch (which only
+// catches std::exception) would let them escape and terminate.
+namespace rust {
+namespace behavior {
+template <typename Try, typename Fail> static void trycatch(Try &&func, Fail &&fail) noexcept try {
+  func();
+} catch (const Standard_Failure &failure) {
+  const char *msg = failure.GetMessageString();
+  fail(msg && *msg ? msg : failure.DynamicType()->Name());
+} catch (const std::exception &e) {
+  fail(e.what());
+}
+} // namespace behavior
+} // namespace rust
+
 // Generic template constructor
 template <typename T, typename... Args> std::unique_ptr<T> construct_unique(Args... args) {
   return std::unique_ptr<T>(new T(args...));
