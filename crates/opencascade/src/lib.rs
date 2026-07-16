@@ -46,6 +46,8 @@ pub enum Error {
     WireFailed(WireError),
     #[error("failed to build face: {0:?}")]
     FaceFailed(FaceError),
+    #[error("failed to project point onto surface: {0}")]
+    SurfaceProjectionFailed(String),
     #[error("transform is not a similarity (rotation + translation + uniform scale)")]
     NotASimilarityTransform,
     #[error("failed to tweak faces: {0}")]

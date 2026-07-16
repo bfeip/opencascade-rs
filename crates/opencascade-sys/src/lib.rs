@@ -1189,7 +1189,11 @@ pub mod ffi {
             origin: &gp_Pnt,
             surface: &HandleGeomSurface,
         ) -> UniquePtr<GeomAPI_ProjectPointOnSurf>;
-        pub fn LowerDistanceParameters(self: &GeomAPI_ProjectPointOnSurf, u: &mut f64, v: &mut f64);
+        pub fn LowerDistanceParameters(
+            self: &GeomAPI_ProjectPointOnSurf,
+            u: &mut f64,
+            v: &mut f64,
+        ) -> Result<()>;
 
         // Bezier Curve
         type Geom_BezierCurve;

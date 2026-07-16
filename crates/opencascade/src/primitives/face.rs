@@ -268,13 +268,15 @@ impl Face {
         dvec3(center.X(), center.Y(), center.Z())
     }
 
-    pub fn normal_at(&self, pos: DVec3) -> DVec3 {
+    pub fn normal_at(&self, pos: DVec3) -> Result<DVec3, Error> {
         let surface = ffi::BRep_Tool_Surface(&self.inner);
         let projector = ffi::GeomAPI_ProjectPointOnSurf_ctor(&make_point(pos), &surface);
         let mut u: f64 = 0.0;
         let mut v: f64 = 0.0;
 
-        projector.LowerDistanceParameters(&mut u, &mut v);
+        projector
+            .LowerDistanceParameters(&mut u, &mut v)
+            .map_err(|e| Error::SurfaceProjectionFailed(e.what().to_string()))?;
 
         let mut p = ffi::new_point(0.0, 0.0, 0.0);
         let mut normal = ffi::new_vec(0.0, 1.0, 0.0);
@@ -282,10 +284,10 @@ impl Face {
         let face = ffi::BRepGProp_Face_ctor(&self.inner);
         face.Normal(u, v, p.pin_mut(), normal.pin_mut());
 
-        dvec3(normal.X(), normal.Y(), normal.Z())
+        Ok(dvec3(normal.X(), normal.Y(), normal.Z()))
     }
 
-    pub fn normal_at_center(&self) -> DVec3 {
+    pub fn normal_at_center(&self) -> Result<DVec3, Error> {
         let center = self.center_of_mass();
         self.normal_at(center)
     }
@@ -294,7 +296,7 @@ impl Face {
         const NORMAL_DIFF_TOLERANCE: f64 = 0.0001;
 
         let center = self.center_of_mass();
-        let normal = self.normal_at(center);
+        let normal = self.normal_at(center).expect("face has no well-defined normal at its center");
         let mut x_dir = dvec3(0.0, 0.0, 1.0).cross(normal);
 
         if x_dir.length() < NORMAL_DIFF_TOLERANCE {

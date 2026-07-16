@@ -1668,6 +1668,23 @@ mod tests {
     }
 
     #[test]
+    fn sphere_face_center_normal_errors() {
+        // A full spherical face's center of mass is the sphere's center, and
+        // projecting that onto the surface has no unique solution. OCCT throws;
+        // this must surface as an Err, not escape the FFI and abort.
+        let sphere = Shape::sphere(1.0).build();
+        let face = sphere.faces().next().expect("sphere has a face");
+        assert!(face.normal_at_center().is_err());
+    }
+
+    #[test]
+    fn planar_face_center_normal() {
+        let top = top_face(&Shape::cube(2.0));
+        let n = top.normal_at_center().expect("planar face has a center normal");
+        assert!(n.x.abs() < 1e-9 && n.z.abs() < 1e-9 && (n.y.abs() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
     fn cylinder_has_one_seam_and_real_rim_edges() {
         let cylinder = Shape::cylinder_radius_height(1.0, 2.0);
 
