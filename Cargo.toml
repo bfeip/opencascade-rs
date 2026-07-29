@@ -7,6 +7,10 @@ members = [
     "examples",
 ]
 
+# `occt-sys` declares its own `[workspace]` and lives inside this directory tree, so it must
+# be excluded here.
+exclude = ["crates/occt-sys"]
+
 resolver = "2"
 
 # Cargo by default builds build (only) dependencies with opt-level of 0 even in the release profile.
