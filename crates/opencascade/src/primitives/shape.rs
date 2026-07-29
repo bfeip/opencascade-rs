@@ -445,6 +445,12 @@ impl Shape {
         self.inner.ShapeType().into()
     }
 
+    /// Returns `true` if this shape contains at least one sub-shape of `ty`.
+    /// A shape of type `ty` contains itself.
+    pub fn contains_type(&self, ty: ShapeType) -> bool {
+        ffi::TopExp_Explorer_ctor(&self.inner, ty.into()).More()
+    }
+
     #[must_use]
     pub fn fillet_edge(&self, radius: f64, edge: &Edge) -> Self {
         self.fillet_edges(radius, [edge])
@@ -1217,6 +1223,26 @@ mod tests {
             .iter()
             .map(|v| v.y)
             .fold(f64::NEG_INFINITY, f64::max)
+    }
+
+    #[test]
+    fn contains_reports_sub_shape_presence() {
+        let cube = Shape::cube(2.0);
+        assert!(cube.contains_type(ShapeType::Solid));
+        assert!(cube.contains_type(ShapeType::Face));
+        assert!(cube.contains_type(ShapeType::Edge));
+
+        let wire: Shape = Wire::from_ordered_points([
+            dvec3(0.0, 0.0, 0.0),
+            dvec3(1.0, 0.0, 0.0),
+            dvec3(1.0, 0.0, 1.0),
+        ])
+        .unwrap()
+        .into();
+        assert!(!wire.contains_type(ShapeType::Solid));
+        assert!(!wire.contains_type(ShapeType::Shell));
+        assert!(!wire.contains_type(ShapeType::Face));
+        assert!(wire.contains_type(ShapeType::Edge));
     }
 
     #[test]

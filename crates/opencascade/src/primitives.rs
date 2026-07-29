@@ -77,6 +77,22 @@ impl From<ffi::TopAbs_ShapeEnum> for ShapeType {
     }
 }
 
+impl From<ShapeType> for ffi::TopAbs_ShapeEnum {
+    fn from(shape_type: ShapeType) -> Self {
+        match shape_type {
+            ShapeType::Shape => ffi::TopAbs_ShapeEnum::TopAbs_SHAPE,
+            ShapeType::Vertex => ffi::TopAbs_ShapeEnum::TopAbs_VERTEX,
+            ShapeType::Edge => ffi::TopAbs_ShapeEnum::TopAbs_EDGE,
+            ShapeType::Wire => ffi::TopAbs_ShapeEnum::TopAbs_WIRE,
+            ShapeType::Face => ffi::TopAbs_ShapeEnum::TopAbs_FACE,
+            ShapeType::Shell => ffi::TopAbs_ShapeEnum::TopAbs_SHELL,
+            ShapeType::Solid => ffi::TopAbs_ShapeEnum::TopAbs_SOLID,
+            ShapeType::CompoundSolid => ffi::TopAbs_ShapeEnum::TopAbs_COMPSOLID,
+            ShapeType::Compound => ffi::TopAbs_ShapeEnum::TopAbs_COMPOUND,
+        }
+    }
+}
+
 pub trait IntoShape {
     fn into_shape(self) -> Shape;
 }
