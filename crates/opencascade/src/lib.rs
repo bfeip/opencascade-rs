@@ -52,6 +52,8 @@ pub enum Error {
     NotASimilarityTransform,
     #[error("failed to tweak faces: {0}")]
     TweakFailed(String),
+    #[error("failed to unify same-domain geometry: {0}")]
+    CleanFailed(String),
     #[error("boolean {0} operation failed: {1}")]
     BooleanFailed(&'static str, String),
 }

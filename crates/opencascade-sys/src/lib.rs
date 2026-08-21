@@ -1840,7 +1840,7 @@ pub mod ffi {
             concat_b_splines: bool,
         ) -> UniquePtr<ShapeUpgrade_UnifySameDomain>;
         pub fn AllowInternalEdges(self: Pin<&mut ShapeUpgrade_UnifySameDomain>, allow: bool);
-        pub fn Build(self: Pin<&mut ShapeUpgrade_UnifySameDomain>);
+        pub fn Build(self: Pin<&mut ShapeUpgrade_UnifySameDomain>) -> Result<()>;
         pub fn Shape(self: &ShapeUpgrade_UnifySameDomain) -> &TopoDS_Shape;
 
         pub fn connect_edges_to_wires(

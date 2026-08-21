@@ -1,4 +1,4 @@
-use crate::primitives::Shape;
+use crate::{primitives::Shape, Error};
 use cxx::UniquePtr;
 use opencascade_sys::ffi;
 
@@ -19,8 +19,7 @@ impl Compound {
         Self { inner }
     }
 
-    #[must_use]
-    pub fn clean(&self) -> Shape {
+    pub fn clean(&self) -> Result<Shape, Error> {
         let shape = ffi::cast_compound_to_shape(&self.inner);
 
         Shape::from_shape(shape).clean()

@@ -402,14 +402,13 @@ impl CompoundFace {
         Self { inner }
     }
 
-    #[must_use]
-    pub fn clean(&self) -> Self {
+    pub fn clean(&self) -> Result<Self, Error> {
         let shape = ffi::cast_compound_to_shape(&self.inner);
-        let shape = Shape::from_shape(shape).clean();
+        let shape = Shape::from_shape(shape).clean()?;
 
         let compound = ffi::TopoDS_cast_to_compound(&shape.inner);
 
-        Self::from_compound(compound)
+        Ok(Self::from_compound(compound))
     }
 
     #[must_use]

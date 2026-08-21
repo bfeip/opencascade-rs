@@ -763,13 +763,13 @@ impl Shape {
         }
     }
 
-    #[must_use]
-    pub fn clean(&self) -> Self {
+    /// Merges faces that lie on the same surface and edges that lie on the same curve.
+    pub fn clean(&self) -> Result<Self, Error> {
         let mut upgrader = ffi::ShapeUpgrade_UnifySameDomain_ctor(&self.inner, true, true, true);
         upgrader.pin_mut().AllowInternalEdges(false);
-        upgrader.pin_mut().Build();
+        upgrader.pin_mut().Build().map_err(|e| Error::CleanFailed(e.what().to_string()))?;
 
-        Self::from_shape(upgrader.Shape())
+        Ok(Self::from_shape(upgrader.Shape()))
     }
 
     pub fn set_global_translation(&mut self, translation: DVec3) {
@@ -1729,6 +1729,31 @@ mod tests {
     #[test]
     fn box_has_no_seam_edges() {
         assert!(Shape::cube(1.0).seam_edges().is_empty());
+    }
+
+    fn total_area(shape: &Shape) -> f64 {
+        shape.faces().map(|f| f.surface_area()).sum()
+    }
+
+    /// A boolean can split a periodic face along its seam, leaving two faces on
+    /// the same sphere with a spurious edge between them. `clean` merges them.
+    #[test]
+    fn clean_merges_boolean_split_sphere_face() {
+        let sphere = Shape::sphere(2.0).at(dvec3(0.5, 1.0, 0.5)).build();
+        let cut = Shape::cube(2.0).subtract(&sphere).unwrap().shape;
+        // Two of the six faces are the halves of one spherical face.
+        assert_eq!(cut.faces().count(), 6);
+        assert_eq!(unique_edges(cut.edges()).len(), 12);
+
+        let cleaned = cut.clean().unwrap();
+        assert_eq!(cleaned.faces().count(), 5);
+        assert_eq!(unique_edges(cleaned.edges()).len(), 9);
+
+        // The solid is unchanged: the halves were merged, not dropped.
+        assert!((cleaned.volume() - cut.volume()).abs() < 1e-9);
+        // Loose: face areas come from numerical integration, so a merged patch
+        // does not reproduce the sum of its halves to the last bit.
+        assert!((total_area(&cleaned) - total_area(&cut)).abs() < 1e-6);
     }
 
     fn half_ball_volume(r: f64) -> f64 {
