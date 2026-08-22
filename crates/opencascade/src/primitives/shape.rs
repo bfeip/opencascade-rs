@@ -3,8 +3,8 @@ use crate::{
     mesh::{FaceRange, Mesh, Mesher},
     primitives::{
         boolean_shape, make_axis_1, make_axis_2, make_dir, make_point, make_point2d, make_vec,
-        BooleanShape, Compound, Edge, EdgeIterator, Face, FaceIterator, ShapeType, Shell, Solid,
-        SubShapeIterator, Vertex, VertexIterator, Wire, WireIterator,
+        BooleanShape, Compound, Edge, EdgeIterator, EdgeType, Face, FaceIterator, ShapeType, Shell,
+        Solid, SubShapeIterator, Vertex, VertexIterator, Wire, WireIterator,
     },
     Error,
 };
@@ -825,9 +825,46 @@ impl Shape {
         seams
     }
 
+    /// Samples every edge of this shape into a polyline, in `edges()` order.
+    ///
+    /// Straight edges yield their two endpoints; everything else is sampled by
+    /// curve approximation. Degenerate edges yield an empty polyline, as do seam edges unless `show_seam_edges`
+    /// is set.
+    pub fn edge_polylines(&self, show_seam_edges: bool) -> Vec<Vec<DVec3>> {
+        let seams = if show_seam_edges { Vec::new() } else { self.seam_edges() };
+
+        self.edges()
+            .map(|edge| {
+                if edge.is_degenerated() || seams.iter().any(|s| s.is_same(&edge)) {
+                    return Vec::new();
+                }
+
+                match edge.edge_type() {
+                    EdgeType::Line => vec![edge.start_point(), edge.end_point()],
+                    _ => edge.approximation_segments().collect(),
+                }
+            })
+            .collect()
+    }
+
     pub fn vertices(&self) -> VertexIterator {
         let explorer = ffi::TopExp_Explorer_ctor(&self.inner, ffi::TopAbs_ShapeEnum::TopAbs_VERTEX);
         VertexIterator { explorer }
+    }
+
+    /// The 3D positions of every vertex of this shape, in `vertices()` order.
+    pub fn vertex_points(&self) -> Vec<DVec3> {
+        self.vertices().map(|vertex| vertex.point()).collect()
+    }
+
+    /// The `index`-th face in `faces()` order.
+    pub fn face_at(&self, index: usize) -> Option<Face> {
+        self.faces().nth(index)
+    }
+
+    /// The `index`-th edge in `edges()` order.
+    pub fn edge_at(&self, index: usize) -> Option<Edge> {
+        self.edges().nth(index)
     }
 
     pub fn wires(&self) -> WireIterator {
