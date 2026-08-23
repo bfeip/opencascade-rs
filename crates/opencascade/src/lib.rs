@@ -4,7 +4,6 @@ use thiserror::Error;
 pub mod angle;
 pub mod bounding_box;
 pub mod history;
-pub mod kicad;
 pub mod mesh;
 pub mod primitives;
 pub mod section;
@@ -22,8 +21,6 @@ pub enum Error {
     StepReadFailed,
     #[error("failed to read IGES file")]
     IgesReadFailed,
-    #[error("failed to read KiCAD PCB file: {0}")]
-    KicadReadFailed(#[from] kicad_parser::Error),
     #[error("failed to write STEP file")]
     StepWriteFailed,
     #[error("failed to write IGES file")]
