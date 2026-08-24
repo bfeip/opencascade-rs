@@ -1,5 +1,5 @@
 use clap::ValueEnum;
-use opencascade::primitives::Shape;
+use opencascade::{primitives::Shape, Error};
 
 pub mod airfoil;
 pub mod bounding_box;
@@ -53,7 +53,7 @@ pub enum Example {
 }
 
 impl Example {
-    pub fn shape(self) -> Shape {
+    pub fn shape(self) -> Result<Shape, Error> {
         match self {
             Example::Airfoil => airfoil::shape(),
             Example::BoundingBox => bounding_box::shape(),

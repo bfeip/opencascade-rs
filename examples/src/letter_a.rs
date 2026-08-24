@@ -1,19 +1,22 @@
 use glam::DVec3;
-use opencascade::primitives::{Edge, Face, Shape, Wire};
+use opencascade::{
+    primitives::{Edge, Face, Shape, Wire},
+    Error,
+};
 
 type Contour = Vec<Vec<(i32, i32)>>;
 
-pub fn shape() -> Shape {
-    let outer = contour_to_face(outer_contour());
-    let inner = contour_to_face(inner_contour());
-    outer.subtract(&inner).extrude(DVec3::new(0.0, 0.0, 10.0))
+pub fn shape() -> Result<Shape, Error> {
+    let outer = contour_to_face(outer_contour())?;
+    let inner = contour_to_face(inner_contour())?;
+    Ok(outer.subtract(&inner).extrude(DVec3::new(0.0, 0.0, 10.0)))
 }
 
 const SCALE_FACTOR: f64 = 1.0 / 16.0;
 const CENTER_X: i32 = 256;
 const CENTER_Y: i32 = 256;
 
-fn contour_to_face(contour: Contour) -> Face {
+fn contour_to_face(contour: Contour) -> Result<Face, Error> {
     let edges: Vec<Edge> = contour
         .into_iter()
         .map(|segment_points| {
@@ -24,8 +27,8 @@ fn contour_to_face(contour: Contour) -> Face {
             });
             Edge::bezier(points)
         })
-        .collect();
-    let wire = Wire::from_edges(&edges);
+        .collect::<Result<_, Error>>()?;
+    let wire = Wire::from_edges(&edges)?;
     Face::from_wire(&wire)
 }
 

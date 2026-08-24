@@ -2,12 +2,13 @@ use glam::dvec3;
 use opencascade::{
     primitives::{approximate_function, Direction, IntoShape, Shape},
     workplane::Workplane,
+    Error,
 };
 
 // Demonstrates a variable fillet radius along the edge of a cube.
-pub fn shape() -> Shape {
+pub fn shape() -> Result<Shape, Error> {
     let base = Workplane::xy().rect(50.0, 50.0);
-    let mut shape = base.to_face().extrude(dvec3(0.0, 0.0, 50.0)).into_shape();
+    let mut shape = base.to_face()?.extrude(dvec3(0.0, 0.0, 50.0)).into_shape();
 
     let mut right_face_edges = shape.faces().farthest(Direction::PosX).edges();
     let first_edge = right_face_edges.next().unwrap();
@@ -35,11 +36,11 @@ pub fn shape() -> Shape {
     let left_face_edges = shape.faces().farthest(Direction::NegX).edges();
 
     // Fillet all edges on the left face with a rough bell curve, for fun.
-    shape.variable_fillet_edges(
+    Ok(shape.variable_fillet_edges(
         approximate_function(num_radii, |t| {
             let val = ((2.0 * std::f64::consts::PI * (t - 1.0 / 4.0)).sin() + 1.0) / 2.0;
             val * 10.0
         }),
         left_face_edges,
-    )
+    ))
 }

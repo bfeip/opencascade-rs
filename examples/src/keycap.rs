@@ -5,11 +5,12 @@ use opencascade::{
     angle::{RVec, ToAngle},
     primitives::{Direction, Face, Shape, Solid},
     workplane::Workplane,
+    Error,
 };
 
 const KEYCAP_PITCH: f64 = 19.05;
 
-pub fn shape() -> Shape {
+pub fn shape() -> Result<Shape, Error> {
     let convex = false;
     let keycap_unit_size_x = 1.0;
     let keycap_unit_size_y = 1.0;
@@ -33,9 +34,9 @@ pub fn shape() -> Shape {
     let tx = bx - top_diff;
     let ty = by - top_diff;
 
-    let base = Workplane::xy().rect(bx, by).fillet(bottom_fillet);
+    let base = Workplane::xy().rect(bx, by).fillet(bottom_fillet)?;
 
-    let mid = Workplane::xy().rect(bx, by).fillet((top_fillet - bottom_fillet) / 3.0).transform(
+    let mid = Workplane::xy().rect(bx, by).fillet((top_fillet - bottom_fillet) / 3.0)?.transform(
         dvec3(0.0, 0.0, height / 4.0),
         dvec3(1.0, 0.0, 0.0),
         angle / 4.0,
@@ -50,7 +51,7 @@ pub fn shape() -> Shape {
         .arc((tx - curve, ty - curve * tension), (tx, ty / 2.0), (tx - curve, curve * tension))
         .arc((tx - curve, curve * tension), (tx / 2.0, 0.0), (curve, curve * tension))
         .wire()
-        .fillet(top_fillet)
+        .fillet(top_fillet)?
         .translate(dvec3(-tx / 2.0, -ty / 2.0, 0.0))
         .transform(dvec3(0.0, 0.0, height), dvec3(1.0, 0.0, 0.0), angle);
 
@@ -66,7 +67,7 @@ pub fn shape() -> Shape {
             .line_to(-by / 2.0, 10.0)
             .close();
 
-        let scoop = Face::from_wire(&scoop);
+        let scoop = Face::from_wire(&scoop)?;
         scoop.extrude(dvec3(bx, 0.0, 0.0))
     } else {
         let scoop_right = Workplane::yz()
@@ -99,7 +100,7 @@ pub fn shape() -> Shape {
         Solid::loft([&scoop_right, &scoop_mid, &scoop_left])
     };
 
-    let keycap = keycap.subtract(&scoop).fillet_new_edges(0.6);
+    let keycap = keycap.subtract(&scoop)?.fillet_new_edges(0.6);
 
     let shell_bottom = Workplane::xy().rect(bx - thickness * 2.0, by - thickness * 2.0);
 
@@ -113,10 +114,10 @@ pub fn shape() -> Shape {
 
     let shell: Shape = Solid::loft([&shell_bottom, &shell_mid, &shell_top]).into();
 
-    let mut keycap = keycap.subtract(&shell);
+    let mut keycap = keycap.subtract(&shell)?;
 
     let temp_face =
-        shell.faces().farthest(Direction::PosZ).workplane().rect(bx * 2.0, by * 2.0).to_face();
+        shell.faces().farthest(Direction::PosZ).workplane().rect(bx * 2.0, by * 2.0).to_face()?;
 
     let mut stem_points = vec![];
     let mut ribh_points = vec![];
@@ -176,37 +177,37 @@ pub fn shape() -> Shape {
     let bottom_workplane = bottom_face.workplane().translated(dvec3(0.0, 0.0, -4.5));
 
     for (x, y) in &stem_points {
-        let circle = bottom_workplane.circle(*x, *y, 2.75).to_face();
+        let circle = bottom_workplane.circle(*x, *y, 2.75).to_face()?;
 
         let post = circle.extrude_to_face(&keycap, &temp_face);
 
-        keycap = keycap.union(&post);
+        keycap = keycap.union(&post)?;
     }
 
     for (x, y) in ribh_points {
-        let rect = bottom_workplane.translated(dvec3(x, y, 0.0)).rect(tx, 0.8).to_face();
+        let rect = bottom_workplane.translated(dvec3(x, y, 0.0)).rect(tx, 0.8).to_face()?;
 
         let rib = rect.extrude_to_face(&keycap, &temp_face);
 
-        keycap = keycap.union(&rib);
+        keycap = keycap.union(&rib)?;
     }
 
     for (x, y) in ribv_points {
-        let rect = bottom_workplane.translated(dvec3(x, y, 0.0)).rect(0.8, ty).to_face();
+        let rect = bottom_workplane.translated(dvec3(x, y, 0.0)).rect(0.8, ty).to_face()?;
 
         let rib = rect.extrude_to_face(&keycap, &temp_face);
 
-        keycap = keycap.union(&rib);
+        keycap = keycap.union(&rib)?;
     }
 
     // TODO(bschwind) - This should probably be done after every union...
-    let mut keycap = keycap.clean();
+    let mut keycap = keycap.clean()?;
 
     for (x, y) in &stem_points {
         let bottom_face = keycap.faces().farthest(Direction::NegZ);
         let workplane = bottom_face.workplane().translated(dvec3(0.0, 0.0, -0.6));
 
-        let circle = workplane.circle(*x, *y, 2.75).to_face();
+        let circle = workplane.circle(*x, *y, 2.75).to_face()?;
 
         // TODO(bschwind) - Abstract all this into a "extrude_to_next_face" function.
         let origin = workplane.to_world_pos(dvec3(*x, *y, 0.0));
@@ -217,22 +218,22 @@ pub fn shape() -> Shape {
             .expect("We should have a face to extrude to");
         let post = circle.extrude_to_face(&keycap, &nearest_hit.face);
 
-        keycap = keycap.union(&post).into();
+        keycap = keycap.union(&post)?.into();
     }
 
-    let r1 = Face::from_wire(&Workplane::xy().rect(4.15, 1.27));
-    let r2 = Face::from_wire(&Workplane::xy().rect(1.27, 4.15));
+    let r1 = Face::from_wire(&Workplane::xy().rect(4.15, 1.27))?;
+    let r2 = Face::from_wire(&Workplane::xy().rect(1.27, 4.15))?;
 
-    let mut cross = r1.union(&r2).clean();
+    let mut cross = r1.union(&r2).clean()?;
 
     for (x, y) in stem_points {
         cross.set_global_translation(dvec3(x, y, 0.0));
         let cross = cross.extrude(dvec3(0.0, 0.0, 4.6));
 
-        keycap = keycap.subtract(&cross).chamfer_new_edges(0.2);
+        keycap = keycap.subtract(&cross)?.chamfer_new_edges(0.2);
     }
 
-    keycap
+    Ok(keycap)
 }
 
 fn round_digits(num: f64, digits: i32) -> f64 {

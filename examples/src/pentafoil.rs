@@ -3,7 +3,10 @@
 use std::f64::consts::PI;
 
 use glam::DVec3;
-use opencascade::primitives::{IntoShape, Shape};
+use opencascade::{
+    primitives::{IntoShape, Shape},
+    Error,
+};
 
 const KNOT_SIZE: f64 = 64.0;
 const KNOT_P: f64 = 2.0;
@@ -11,16 +14,16 @@ const KNOT_Q: f64 = 5.0;
 const BEAD_SIZE: f64 = 16.0;
 const SAMPLE_COUNT: u32 = 128;
 
-pub fn shape() -> Shape {
+pub fn shape() -> Result<Shape, Error> {
     let mut shape = Shape::empty();
 
     for t in (0..SAMPLE_COUNT).map(|i| i as f64 / SAMPLE_COUNT as f64) {
         let pos = torus_knot(t);
         let bead = Shape::sphere(BEAD_SIZE).at(KNOT_SIZE * pos).build();
-        shape = shape.union(&bead).into_shape();
+        shape = shape.union(&bead)?.into_shape();
     }
 
-    shape
+    Ok(shape)
 }
 
 fn torus_knot(t: f64) -> DVec3 {

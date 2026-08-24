@@ -7,11 +7,7 @@ use anyhow::Error;
 use camera::OrbitCamera;
 use clap::Parser;
 use glam::{vec2, vec4, DVec3, Mat4, Quat, Vec2, Vec3};
-use kicad_parser::board::BoardLayer;
-use opencascade::{
-    kicad::KicadPcb,
-    primitives::{IntoShape, Shape},
-};
+use opencascade::primitives::Shape;
 use simple_game::{
     graphics::{
         text::{AxisAlign, StyledText, TextAlignment, TextSystem},
@@ -88,9 +84,6 @@ struct AppArgs {
     #[arg(long, group = "model")]
     step_file: Option<PathBuf>,
 
-    #[arg(long, group = "model")]
-    kicad_file: Option<PathBuf>,
-
     #[arg(long, value_enum, group = "model")]
     example: Option<examples::Example>,
 
@@ -153,21 +146,8 @@ impl GameApp for ViewerApp {
 
         let shape = if let Some(step_file) = args.step_file {
             Shape::read_step_from_file(step_file).expect("Failed to read STEP file, {step_file}")
-        } else if let Some(kicad_file) = args.kicad_file {
-            // Parse the kicad file, turn it into a face, extrude it by 1.6mm
-            let pcb =
-                KicadPcb::from_file(kicad_file).expect("Failed to read KiCAD PCB file, kicad_file");
-
-            // Temporary - Unions all edges together to display without connecting them.
-            let edges = pcb.layer_edges(&BoardLayer::EdgeCuts);
-            edges
-                .map(|edge| edge.into_shape())
-                .reduce(|acc, edge| acc.union(&edge).expect("failed to fuse edges").into())
-                .unwrap()
-
-            // pcb.edge_cuts().to_face().extrude(glam::dvec3(0.0, 0.0, 1.6)).into()
         } else if let Some(example) = args.example {
-            example.shape()
+            example.shape().expect("Failed to build the example model")
         } else if let Some(wasm_path) = args.wasm_path {
             let engine = WasmEngine::new(wasm_path);
             let shape = engine.shape();

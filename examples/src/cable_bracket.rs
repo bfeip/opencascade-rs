@@ -2,10 +2,11 @@ use glam::{dvec3, DVec3};
 use opencascade::{
     primitives::{Direction, Face, IntoShape, Shape, Wire},
     workplane::Workplane,
+    Error,
 };
 use std::f64::consts::PI;
 
-pub fn shape() -> Shape {
+pub fn shape() -> Result<Shape, Error> {
     let width = 15.0;
     let thickness = 2.5;
     let cable_radius = 6.0 / 2.0;
@@ -18,7 +19,7 @@ pub fn shape() -> Shape {
     let face_profile: Face = Workplane::yz()
         .translated(DVec3::new(0.0, 0.0, -max_extent))
         .rect(width, thickness)
-        .to_face();
+        .to_face()?;
 
     let x = (PI / 4.0).cos() * pre_bend_radius;
     let y = (1.0 - (PI / 4.0).sin()) * pre_bend_radius;
@@ -60,12 +61,12 @@ pub fn shape() -> Shape {
             3.0,
         );
 
-        bracket = bracket.subtract(&cylinder).chamfer_new_edges(0.3);
+        bracket = bracket.subtract(&cylinder)?.chamfer_new_edges(0.3);
     }
 
     for x_pos in [drill_point, -drill_point] {
         bracket = bracket.drill_hole(dvec3(-x_pos, 0.0, 0.0), DVec3::Z, thumbtack_pin_radius);
     }
 
-    bracket
+    Ok(bracket)
 }

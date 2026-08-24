@@ -2,9 +2,10 @@ use glam::{dvec3, DVec3};
 use opencascade::{
     primitives::{Direction, IntoShape, Shape, Wire},
     workplane::Workplane,
+    Error,
 };
 
-pub fn shape() -> Shape {
+pub fn shape() -> Result<Shape, Error> {
     let thumbtack_big_diameter = 10.75;
     let thumbtack_big_radius = thumbtack_big_diameter / 2.0;
     let thumbtack_pin_radius = 1.2 / 2.0;
@@ -27,7 +28,7 @@ pub fn shape() -> Shape {
         .line_dx(-(thickness + cable_height + thickness))
         .close();
 
-    let mut bracket = path.to_face().extrude(dvec3(0.0, thumbtack_big_diameter, 0.0)).into_shape();
+    let mut bracket = path.to_face()?.extrude(dvec3(0.0, thumbtack_big_diameter, 0.0)).into_shape();
 
     let top_edges = bracket.faces().farthest(Direction::PosZ).edges().parallel_to(Direction::PosX);
 
@@ -40,7 +41,7 @@ pub fn shape() -> Shape {
         thickness - 1.0,
     );
 
-    bracket = bracket.subtract(&cylinder).fillet(0.2);
+    bracket = bracket.subtract(&cylinder)?.fillet(0.2);
 
     bracket = bracket.drill_hole(
         dvec3(thickness, thumbtack_big_radius, -thumbtack_big_radius),
@@ -48,5 +49,5 @@ pub fn shape() -> Shape {
         thumbtack_pin_radius,
     );
 
-    bracket
+    Ok(bracket)
 }

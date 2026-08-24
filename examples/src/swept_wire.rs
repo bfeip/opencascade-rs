@@ -3,9 +3,10 @@ use opencascade::{
     angle::{RVec, ToAngle},
     primitives::{IntoShape, Shape, Shell, Wire},
     workplane::Workplane,
+    Error,
 };
 
-pub fn shape() -> Shape {
+pub fn shape() -> Result<Shape, Error> {
     let r = 10.0;
     let a = 5.0;
 
@@ -18,5 +19,5 @@ pub fn shape() -> Shape {
 
     let pipe_shell: Shell = wire_profile.sweep_along(&path);
 
-    pipe_shell.into_shape()
+    Ok(pipe_shell.into_shape())
 }

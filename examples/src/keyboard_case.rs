@@ -2,6 +2,7 @@ use glam::{dvec2, dvec3, DVec2, DVec3};
 use opencascade::{
     primitives::{Direction, IntoShape, JoinType, Shape, Wire},
     workplane::Workplane,
+    Error,
 };
 
 // All units are in millimeters.
@@ -79,7 +80,7 @@ struct SupportPost {
 }
 
 impl SupportPost {
-    fn shape(&self) -> Shape {
+    fn shape(&self) -> Result<Shape, Error> {
         let bottom_z = CASE_FLOOR_Z;
         let top_z = TOP_PLATE_BOTTOM_Z;
 
@@ -121,7 +122,7 @@ impl SupportPost {
             },
         };
 
-        cylinder.union(&box_part).subtract(&m2_drill_hole).into()
+        Ok(cylinder.union(&box_part)?.subtract(&m2_drill_hole)?.into())
     }
 }
 
@@ -183,7 +184,7 @@ const PINHOLE_BUTTON_RADIUS: f64 = 1.1;
 
 const PINHOLE_LOCATIONS: &[DVec2] = &[DVec2::new(35.85, -53.95), DVec2::new(8.425, -86.075)];
 
-fn case_outer_box() -> Shape {
+fn case_outer_box() -> Result<Shape, Error> {
     let mut workplane = Workplane::xy();
     workplane.set_translation(dvec3(0.0, 0.0, CASE_BOTTOM_Z));
 
@@ -194,33 +195,35 @@ fn case_outer_box() -> Shape {
         .line_to(CASE_RIGHT, CASE_BOTTOM)
         .line_to(CASE_LEFT, CASE_BOTTOM)
         .close()
-        .fillet(PCB_FILLET_RADIUS + CASE_WALL_THICKNESS)
-        .to_face()
+        .fillet(PCB_FILLET_RADIUS + CASE_WALL_THICKNESS)?
+        .to_face()?
         .extrude(dvec3(0.0, 0.0, CASE_TOP_Z - CASE_BOTTOM_Z))
         .into_shape();
 
     let top_edges = outer_box.faces().farthest(Direction::PosZ).edges();
     let bottom_edges = outer_box.faces().farthest(Direction::NegZ).edges();
 
-    outer_box.chamfer_edges(1.5, top_edges.chain(bottom_edges))
+    Ok(outer_box.chamfer_edges(1.5, top_edges.chain(bottom_edges)))
 }
 
-fn case_inner_box() -> Shape {
+fn case_inner_box() -> Result<Shape, Error> {
     let mut workplane = Workplane::xy();
     workplane.set_translation(dvec3(0.0, 0.0, CASE_FLOOR_Z));
 
-    workplane
+    let inner_box = workplane
         .sketch()
         .move_to(PCB_LEFT, PCB_TOP)
         .line_to(PCB_RIGHT, PCB_TOP)
         .line_to(PCB_RIGHT, PCB_BOTTOM)
         .line_to(PCB_LEFT, PCB_BOTTOM)
         .close()
-        .fillet(PCB_FILLET_RADIUS)
-        .to_face()
+        .fillet(PCB_FILLET_RADIUS)?
+        .to_face()?
         // 0.1 is a fudge factor to retrieve edges from boolean subtraction
         .extrude(dvec3(0.0, 0.0, CASE_TOP_Z + 0.1 - CASE_FLOOR_Z))
-        .into_shape()
+        .into_shape();
+
+    Ok(inner_box)
 }
 
 fn pcb_top_shelf() -> Shape {
@@ -230,7 +233,7 @@ fn pcb_top_shelf() -> Shape {
     Shape::box_from_corners(corner_1, corner_2)
 }
 
-fn pcb_bottom_shelf() -> Shape {
+fn pcb_bottom_shelf() -> Result<Shape, Error> {
     let corner_1 = DVec3::new(PCB_LEFT, PCB_BOTTOM + PCB_SHELF_THICKNESS_BOTTOM, CASE_FLOOR_Z);
     let corner_2 = DVec3::new(PCB_RIGHT, PCB_BOTTOM, CASE_FLOOR_Z + PCB_SHELF_HEIGHT);
 
@@ -245,13 +248,13 @@ fn pcb_bottom_shelf() -> Shape {
 
         let cutout_box = Shape::box_from_corners(corner_1, corner_2);
 
-        bottom_shelf = bottom_shelf.subtract(&cutout_box).into();
+        bottom_shelf = bottom_shelf.subtract(&cutout_box)?.into();
     }
 
-    bottom_shelf
+    Ok(bottom_shelf)
 }
 
-fn usb_connector_cutout() -> Shape {
+fn usb_connector_cutout() -> Result<Shape, Error> {
     let mut usb_workplane = Workplane::xz();
     usb_workplane.set_translation(dvec3(
         USB_MIDDLE_X,
@@ -259,17 +262,19 @@ fn usb_connector_cutout() -> Shape {
         PCB_BOTTOM_Z - (USB_DEPTH_NO_PADDING / 2.0) - 0.01, // TODO - why does it segfault without this fudge factor?
     ));
 
-    usb_workplane
+    let cutout = usb_workplane
         .rect(USB_WIDTH, USB_DEPTH)
-        .fillet(USB_RADIUS)
-        .to_face()
+        .fillet(USB_RADIUS)?
+        .to_face()?
         .extrude(dvec3(0.0, USB_HEIGHT + CASE_WALL_THICKNESS, 0.0))
-        .into_shape()
+        .into_shape();
+
+    Ok(cutout)
 }
 
 // This is the little trapezoidal PCB shape which helps the USB C connector
 // extend forward into the case.
-fn pcb_usb_overhang() -> Shape {
+fn pcb_usb_overhang() -> Result<Shape, Error> {
     const VERTICAL_PADDING: f64 = 1.0;
     const TRAPEZOID_PADDING: f64 = 1.0;
 
@@ -283,8 +288,8 @@ fn pcb_usb_overhang() -> Shape {
         DVec3::new(19.05, PCB_TOP - PCB_SHELF_THICKNESS_TOP, start),
     ];
 
-    let wire = Wire::from_ordered_points(points).unwrap().offset(TRAPEZOID_PADDING, JoinType::Arc);
-    wire.to_face().extrude(dvec3(0.0, 0.0, PCB_TOP_Z - start + VERTICAL_PADDING)).into()
+    let wire = Wire::from_ordered_points(points)?.offset(TRAPEZOID_PADDING, JoinType::Arc);
+    Ok(wire.to_face()?.extrude(dvec3(0.0, 0.0, PCB_TOP_Z - start + VERTICAL_PADDING)).into())
 }
 
 #[allow(unused)]
@@ -294,7 +299,12 @@ enum FootStyle {
     Line,
 }
 
-fn case_foot(center: DVec2, foot_style: FootStyle, foot_thickness: f64, z_extrude: f64) -> Shape {
+fn case_foot(
+    center: DVec2,
+    foot_style: FootStyle,
+    foot_thickness: f64,
+    z_extrude: f64,
+) -> Result<Shape, Error> {
     const FOOT_EXTENT: f64 = 15.0;
 
     let half_foot_thickness = foot_thickness / 2.0;
@@ -334,10 +344,10 @@ fn case_foot(center: DVec2, foot_style: FootStyle, foot_thickness: f64, z_extrud
             .close(),
     };
 
-    sketch.fillet(0.7).to_face().extrude(dvec3(0.0, 0.0, z_extrude)).into()
+    Ok(sketch.fillet(0.7)?.to_face()?.extrude(dvec3(0.0, 0.0, z_extrude)).into())
 }
 
-fn case_feet(foot_thickness: f64, z_extrude: f64) -> Shape {
+fn case_feet(foot_thickness: f64, z_extrude: f64) -> Result<Shape, Error> {
     // The vertical distance between the gaps in between rows of keycaps.
     // Moving this amount will take you from the center of one gap to the one
     // above or below it.
@@ -351,27 +361,27 @@ fn case_feet(foot_thickness: f64, z_extrude: f64) -> Shape {
         upper_left_foot_pos + dvec2(14.0, -(55.3 + KEY_ROW_VERTICAL_PITCH + 0.1));
 
     let upper_left_foot =
-        case_foot(upper_left_foot_pos, FootStyle::Line, foot_thickness, z_extrude);
+        case_foot(upper_left_foot_pos, FootStyle::Line, foot_thickness, z_extrude)?;
     let upper_right_foot = case_foot(
         upper_left_foot_pos + dvec2(171.1, 0.0),
         FootStyle::Line,
         foot_thickness,
         z_extrude,
-    );
+    )?;
     let bottom_left_foot =
-        case_foot(bottom_left_foot_pos, FootStyle::PointingUp, foot_thickness, z_extrude);
+        case_foot(bottom_left_foot_pos, FootStyle::PointingUp, foot_thickness, z_extrude)?;
     let bottom_right_foot = case_foot(
         bottom_left_foot_pos + dvec2(152.1, 0.0),
         FootStyle::PointingUp,
         foot_thickness,
         z_extrude,
-    );
+    )?;
 
-    upper_left_foot
-        .union(&upper_right_foot)
-        .union(&bottom_left_foot)
-        .union(&bottom_right_foot)
-        .into()
+    Ok(upper_left_foot
+        .union(&upper_right_foot)?
+        .union(&bottom_left_foot)?
+        .union(&bottom_right_foot)?
+        .into())
 }
 
 const PUSH_SLOT_LOCATIONS: &[DVec2] = &[
@@ -380,30 +390,32 @@ const PUSH_SLOT_LOCATIONS: &[DVec2] = &[
 ];
 
 // A slot to help remove the PCB by pushing through the bottom of the case.
-fn push_slot(center: DVec2) -> Shape {
+fn push_slot(center: DVec2) -> Result<Shape, Error> {
     let mut cutout_workplane = Workplane::xy();
     cutout_workplane.set_translation(dvec3(center.x, center.y, CASE_FLOOR_Z));
 
-    cutout_workplane
+    let slot = cutout_workplane
         .rect(10.0, 3.0)
-        .fillet(1.0)
-        .to_face()
+        .fillet(1.0)?
+        .to_face()?
         .extrude(dvec3(0.0, 0.0, -CASE_WALL_THICKNESS))
-        .into()
+        .into();
+
+    Ok(slot)
 }
 
-pub fn shape() -> Shape {
-    let inner_box = case_inner_box();
+pub fn shape() -> Result<Shape, Error> {
+    let inner_box = case_inner_box()?;
     let top_shelf = pcb_top_shelf();
-    let bottom_shelf = pcb_bottom_shelf();
-    let usb_cutout = usb_connector_cutout();
+    let bottom_shelf = pcb_bottom_shelf()?;
+    let usb_cutout = usb_connector_cutout()?;
 
-    let case = case_outer_box()
-        .subtract(&inner_box)
+    let case = case_outer_box()?
+        .subtract(&inner_box)?
         .fillet_new_edges(0.3)
-        .union(&top_shelf)
-        .union(&bottom_shelf)
-        .subtract(&usb_cutout);
+        .union(&top_shelf)?
+        .union(&bottom_shelf)?
+        .subtract(&usb_cutout)?;
 
     let new_edges: Vec<_> = case
         .new_edges()
@@ -415,12 +427,12 @@ pub fn shape() -> Shape {
     let mut case = case.into_shape();
 
     for support_post in SUPPORT_POSTS {
-        case = case.union(&support_post.shape()).into();
+        case = case.union(&support_post.shape()?)?.into();
     }
 
-    let usb_overhang = pcb_usb_overhang();
+    let usb_overhang = pcb_usb_overhang()?;
 
-    case = case.subtract(&usb_overhang).into();
+    case = case.subtract(&usb_overhang)?.into();
 
     for feet_cutout in FEET_CUTOUTS {
         let pos = DVec3::from((*feet_cutout, CASE_FLOOR_Z));
@@ -437,8 +449,8 @@ pub fn shape() -> Shape {
     }
 
     for slot_center in PUSH_SLOT_LOCATIONS {
-        let slot = push_slot(*slot_center);
-        case = case.subtract(&slot).into();
+        let slot = push_slot(*slot_center)?;
+        case = case.subtract(&slot)?.into();
     }
 
     // For exporting to smaller 3D printers
@@ -455,10 +467,10 @@ pub fn shape() -> Shape {
     // shape.write_stl("keyboard_half.stl").unwrap();
 
     let foot_z_extrude = 2.5;
-    let feet_indentation = case_feet(CASE_FOOT_THICKNESS + 0.1, foot_z_extrude);
-    let feet = case_feet(CASE_FOOT_THICKNESS, -foot_z_extrude * 2.0);
+    let feet_indentation = case_feet(CASE_FOOT_THICKNESS + 0.1, foot_z_extrude)?;
+    let feet = case_feet(CASE_FOOT_THICKNESS, -foot_z_extrude * 2.0)?;
 
-    let case = case.subtract(&feet_indentation).into_shape();
+    let case = case.subtract(&feet_indentation)?.into_shape();
     // let case = case.union(&feet).into_shape();
 
     // let pcb_center = dvec2(PCB_WIDTH / 2.0, ((CASE_BOTTOM - CASE_TOP) / 2.0) + 0.8);
@@ -473,7 +485,7 @@ pub fn shape() -> Shape {
 
     // test_plate.into()
 
-    case.write_step_to_file("keyboard.step").unwrap();
-    feet.write_step_to_file("case_feet.step").unwrap();
-    case
+    case.write_step_to_file("keyboard.step")?;
+    feet.write_step_to_file("case_feet.step")?;
+    Ok(case)
 }

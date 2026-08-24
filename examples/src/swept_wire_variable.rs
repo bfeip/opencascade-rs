@@ -3,9 +3,10 @@ use opencascade::{
     angle::{RVec, ToAngle},
     primitives::{approximate_function, IntoShape, Shape, Shell, Wire},
     workplane::Workplane,
+    Error,
 };
 
-pub fn shape() -> Shape {
+pub fn shape() -> Result<Shape, Error> {
     let r = 10.0;
     let a = 5.0;
 
@@ -22,5 +23,5 @@ pub fn shape() -> Shape {
         approximate_function(num_radii, |t| (-(8.0 * std::f64::consts::PI * t).cos() + 3.0) / 4.0),
     );
 
-    pipe_shell.into_shape()
+    Ok(pipe_shell.into_shape())
 }

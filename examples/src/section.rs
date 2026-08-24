@@ -5,9 +5,10 @@ use opencascade::{
     primitives::{Compound, IntoShape, Shape},
     section,
     workplane::Workplane,
+    Error,
 };
 
-pub fn shape() -> Shape {
+pub fn shape() -> Result<Shape, Error> {
     // Create a wire by sketching two arcs on the XY plane
     let s = Workplane::xy()
         .sketch()
@@ -16,7 +17,7 @@ pub fn shape() -> Shape {
         .wire();
 
     // Create a circular face on the YZ plane
-    let f = Workplane::yz().circle(0.0, 0.0, 0.5).to_face();
+    let f = Workplane::yz().circle(0.0, 0.0, 0.5).to_face()?;
 
     // Sweep the circular face along the wire to create a 3D shape
     let shape = f.sweep_along(&s).into_shape();
@@ -25,7 +26,7 @@ pub fn shape() -> Shape {
     let p = Workplane::yz()
         .rect(10.0, 10.0)
         .transform(dvec3(0.0, 0.0, 0.0), dvec3(0.0, 0.0, 1.0), Radians(f64::consts::PI / 8.0))
-        .to_face()
+        .to_face()?
         .into_shape();
 
     // Compute the intersection edges between the swept shape and the transformed rectangle
@@ -38,5 +39,5 @@ pub fn shape() -> Shape {
         p.edges().map(|e| e.into_shape()).collect(), // The edges of the cutting plane
     ];
 
-    Compound::from_shapes(all_shapes.iter().flatten()).into_shape()
+    Ok(Compound::from_shapes(all_shapes.iter().flatten()).into_shape())
 }

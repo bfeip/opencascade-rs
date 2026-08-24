@@ -199,7 +199,7 @@ impl HostChamferMaker for ModelHost {
 
 impl HostEdge for ModelHost {
     fn segment(&mut self, p1: Point3, p2: Point3) -> Result<Resource<occ::Edge>, anyhow::Error> {
-        Ok(self.edges.push(occ::Edge::segment(p1.into(), p2.into()))?)
+        Ok(self.edges.push(occ::Edge::segment(p1.into(), p2.into())?)?)
     }
 
     fn drop(&mut self, resource: Resource<occ::Edge>) -> Result<(), anyhow::Error> {
@@ -229,7 +229,7 @@ impl HostWireBuilder for ModelHost {
         &mut self,
         resource: Resource<occ::WireBuilder>,
     ) -> Result<Resource<occ::Wire>, anyhow::Error> {
-        let wire = self.wire_builders.delete(resource)?.build();
+        let wire = self.wire_builders.delete(resource)?.build()?;
 
         let new_wire = self.wires.push(wire)?;
 
@@ -280,7 +280,7 @@ impl HostFace for ModelHost {
         wire_resource: Resource<occ::Wire>,
     ) -> Result<Resource<occ::Face>, anyhow::Error> {
         let wire = self.wires.get(&wire_resource)?;
-        let face = Face::from_wire(wire);
+        let face = Face::from_wire(wire)?;
 
         let new_face = self.faces.push(face)?;
 

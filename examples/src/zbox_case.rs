@@ -2,9 +2,10 @@ use glam::dvec3;
 use opencascade::{
     primitives::{Direction, Shape},
     workplane::Workplane,
+    Error,
 };
 
-pub fn shape() -> Shape {
+pub fn shape() -> Result<Shape, Error> {
     // The origin of the coordinate system is the closest bottom left corner of
     // the PC box, when viewing its ports from behind.
     let case_thickness = 2.0;
@@ -28,11 +29,11 @@ pub fn shape() -> Shape {
         .line_to(200.0, 55.0)
         .line_to(200.0, 9.0)
         .close()
-        .to_face();
+        .to_face()?;
 
     let cutout = port_cutout.extrude(dvec3(0.0, -case_thickness, 0.0)).into();
 
-    let mut case_box = case_box.subtract(&cutout);
+    let mut case_box = case_box.subtract(&cutout)?;
 
     // Add the back hooks
     let bottom_face = case_box.faces().farthest(Direction::NegZ);
@@ -42,7 +43,7 @@ pub fn shape() -> Shape {
             .workplane()
             .translated(dvec3(x_offset, -20.0, 0.0))
             .rect(40.0, 20.0)
-            .to_face()
+            .to_face()?
             .extrude(dvec3(0.0, 0.0, -(hook_thickness + wire_gap)))
             .into();
 
@@ -52,17 +53,17 @@ pub fn shape() -> Shape {
             .workplane()
             .translated(dvec3(0.0, -(hook_thickness + wire_gap) / 2.0 + hook_thickness / 2.0, 0.0))
             .rect(40.0, hook_thickness)
-            .to_face()
+            .to_face()?
             .extrude(dvec3(0.0, -20.0, 0.0))
             .into();
 
-        hook = hook.union(&hook_descent).into();
+        hook = hook.union(&hook_descent)?.into();
 
         let bottom_hook_edges =
             hook.faces().farthest(Direction::NegY).edges().parallel_to(Direction::PosZ);
         hook = hook.fillet_edges(10.0, bottom_hook_edges);
 
-        case_box = case_box.union(&hook);
+        case_box = case_box.union(&hook)?;
     }
 
     // Punch some holes in the back for optional zipties
@@ -71,11 +72,11 @@ pub fn shape() -> Shape {
             .workplane()
             .translated(dvec3(x_offset, -20.0, 0.0))
             .circle(0.0, 0.0, 2.25)
-            .to_face()
+            .to_face()?
             .extrude(dvec3(0.0, 0.0, 10.0))
             .into();
 
-        case_box = case_box.subtract(&ziptie_hole)
+        case_box = case_box.subtract(&ziptie_hole)?
     }
 
     // Cut out a circle on the front
@@ -85,7 +86,7 @@ pub fn shape() -> Shape {
         .workplane()
         .translated(dvec3(0.0, 75.0, 0.0))
         .circle(0.0, 0.0, 100.0)
-        .to_face();
+        .to_face()?;
 
-    front_face.subtractive_extrude(&case_box, -case_thickness)
+    Ok(front_face.subtractive_extrude(&case_box, -case_thickness))
 }

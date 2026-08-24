@@ -2,9 +2,10 @@ use opencascade::{
     bounding_box,
     primitives::{Compound, IntoShape, Shape},
     workplane::Workplane,
+    Error,
 };
 
-pub fn shape() -> Shape {
+pub fn shape() -> Result<Shape, Error> {
     let mut shapes = vec![];
 
     // Create some non-orthogonal shapes.
@@ -31,5 +32,5 @@ pub fn shape() -> Shape {
         [vec![c.into_shape()], bb_shape.edges().map(|e| e.into_shape()).collect::<Vec<_>>()];
 
     // Combine the bounded and bounding geometry.
-    Compound::from_shapes(all_shapes.iter().flatten()).into_shape()
+    Ok(Compound::from_shapes(all_shapes.iter().flatten()).into_shape())
 }
