@@ -979,6 +979,19 @@ pub mod ffi {
         pub fn Build(self: Pin<&mut BRepOffsetAPI_ThruSections>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepOffsetAPI_ThruSections) -> bool;
 
+        // Intersection part of the boolean algorithm, shareable by the boolean
+        // operations built on the same arguments.
+        type BOPAlgo_PaveFiller;
+
+        #[cxx_name = "construct_unique"]
+        pub fn BOPAlgo_PaveFiller_ctor() -> UniquePtr<BOPAlgo_PaveFiller>;
+
+        pub fn SetArguments(self: Pin<&mut BOPAlgo_PaveFiller>, args: &TopTools_ListOfShape);
+        pub fn SetFuzzyValue(self: Pin<&mut BOPAlgo_PaveFiller>, fuzz: f64);
+        pub fn Perform(self: Pin<&mut BOPAlgo_PaveFiller>, progress: &Message_ProgressRange);
+        pub fn HasErrors(self: &BOPAlgo_PaveFiller) -> bool;
+        pub fn BOPAlgo_PaveFiller_errors(filler: &BOPAlgo_PaveFiller) -> String;
+
         pub type BRepAlgoAPI_BuilderAlgo;
         pub fn SectionEdges(self: Pin<&mut BRepAlgoAPI_BuilderAlgo>) -> &TopTools_ListOfShape;
 
@@ -994,6 +1007,15 @@ pub mod ffi {
         /// Empty operation: set arguments, tools and options, then `Build`.
         #[cxx_name = "construct_unique"]
         pub fn BRepAlgoAPI_Fuse_ctor_empty() -> UniquePtr<BRepAlgoAPI_Fuse>;
+
+        /// Built from `filler`'s intersection of the two shapes, which must be
+        /// its arguments. `filler` must outlive the operation.
+        #[cxx_name = "construct_unique"]
+        pub fn BRepAlgoAPI_Fuse_ctor_with_filler(
+            shape_1: &TopoDS_Shape,
+            shape_2: &TopoDS_Shape,
+            filler: &BOPAlgo_PaveFiller,
+        ) -> UniquePtr<BRepAlgoAPI_Fuse>;
 
         pub fn Shape(self: Pin<&mut BRepAlgoAPI_Fuse>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepAlgoAPI_Fuse>, progress: &Message_ProgressRange);
@@ -1019,6 +1041,17 @@ pub mod ffi {
         /// Empty operation: set arguments, tools and options, then `Build`.
         #[cxx_name = "construct_unique"]
         pub fn BRepAlgoAPI_Cut_ctor_empty() -> UniquePtr<BRepAlgoAPI_Cut>;
+
+        /// Built from `filler`'s intersection of the two shapes, which must be
+        /// its arguments: `shape_1 - shape_2`, or `shape_2 - shape_1` when not
+        /// `forward`. `filler` must outlive the operation.
+        #[cxx_name = "construct_unique"]
+        pub fn BRepAlgoAPI_Cut_ctor_with_filler(
+            shape_1: &TopoDS_Shape,
+            shape_2: &TopoDS_Shape,
+            filler: &BOPAlgo_PaveFiller,
+            forward: bool,
+        ) -> UniquePtr<BRepAlgoAPI_Cut>;
 
         pub fn Shape(self: Pin<&mut BRepAlgoAPI_Cut>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepAlgoAPI_Cut>, progress: &Message_ProgressRange);
@@ -1047,6 +1080,15 @@ pub mod ffi {
         /// Empty operation: set arguments, tools and options, then `Build`.
         #[cxx_name = "construct_unique"]
         pub fn BRepAlgoAPI_Common_ctor_empty() -> UniquePtr<BRepAlgoAPI_Common>;
+
+        /// Built from `filler`'s intersection of the two shapes, which must be
+        /// its arguments. `filler` must outlive the operation.
+        #[cxx_name = "construct_unique"]
+        pub fn BRepAlgoAPI_Common_ctor_with_filler(
+            shape_1: &TopoDS_Shape,
+            shape_2: &TopoDS_Shape,
+            filler: &BOPAlgo_PaveFiller,
+        ) -> UniquePtr<BRepAlgoAPI_Common>;
 
         pub fn Shape(self: Pin<&mut BRepAlgoAPI_Common>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepAlgoAPI_Common>, progress: &Message_ProgressRange);

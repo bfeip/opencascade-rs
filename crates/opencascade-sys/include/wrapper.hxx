@@ -2,6 +2,7 @@
 #include <sstream>
 #include <BOPAlgo_GlueEnum.hxx>
 #include <BOPAlgo_MakerVolume.hxx>
+#include <BOPAlgo_PaveFiller.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
@@ -1201,6 +1202,12 @@ inline rust::String BRepAlgoAPI_Common_warnings(const BRepAlgoAPI_Common &op) {
 inline rust::String BRepAlgoAPI_Common_errors(const BRepAlgoAPI_Common &op) {
   std::ostringstream stream;
   op.DumpErrors(stream);
+  return rust::String(stream.str());
+}
+
+inline rust::String BOPAlgo_PaveFiller_errors(const BOPAlgo_PaveFiller &filler) {
+  std::ostringstream stream;
+  filler.DumpErrors(stream);
   return rust::String(stream.str());
 }
 

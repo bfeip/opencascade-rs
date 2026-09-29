@@ -1,3 +1,4 @@
+use cxx::UniquePtr;
 use opencascade_sys::ffi;
 use std::ops::{Deref, DerefMut};
 
@@ -85,14 +86,7 @@ pub(crate) fn cut(
     operation.pin_mut().SetTools(single(tool).as_ref().unwrap());
     ffi::BRepAlgoAPI_Cut_set_fuzzy_value(operation.pin_mut(), fuzz);
     operation.pin_mut().Build(&ffi::Message_ProgressRange_ctor());
-    if !operation.IsDone() {
-        return Err(Error::BooleanFailed("cut", ffi::BRepAlgoAPI_Cut_errors(&operation)));
-    }
-    let warnings = non_empty(ffi::BRepAlgoAPI_Cut_warnings(&operation));
-    let new_edges = edges_from_list(operation.pin_mut().SectionEdges());
-    let shape = Shape::from_shape(operation.pin_mut().Shape());
-    let history = ShapeHistory::from_handle(ffi::BRepAlgoAPI_Cut_history(&operation));
-    Ok(BooleanShape { shape, new_edges, history, warnings })
+    cut_result(operation)
 }
 
 pub(crate) fn fuse(
@@ -105,14 +99,7 @@ pub(crate) fn fuse(
     operation.pin_mut().SetTools(single(tool).as_ref().unwrap());
     ffi::BRepAlgoAPI_Fuse_set_fuzzy_value(operation.pin_mut(), fuzz);
     operation.pin_mut().Build(&ffi::Message_ProgressRange_ctor());
-    if !operation.IsDone() {
-        return Err(Error::BooleanFailed("fuse", ffi::BRepAlgoAPI_Fuse_errors(&operation)));
-    }
-    let warnings = non_empty(ffi::BRepAlgoAPI_Fuse_warnings(&operation));
-    let new_edges = edges_from_list(operation.pin_mut().SectionEdges());
-    let shape = Shape::from_shape(operation.pin_mut().Shape());
-    let history = ShapeHistory::from_handle(ffi::BRepAlgoAPI_Fuse_history(&operation));
-    Ok(BooleanShape { shape, new_edges, history, warnings })
+    fuse_result(operation)
 }
 
 pub(crate) fn common(
@@ -125,6 +112,37 @@ pub(crate) fn common(
     operation.pin_mut().SetTools(single(tool).as_ref().unwrap());
     ffi::BRepAlgoAPI_Common_set_fuzzy_value(operation.pin_mut(), fuzz);
     operation.pin_mut().Build(&ffi::Message_ProgressRange_ctor());
+    common_result(operation)
+}
+
+/// The outcome of a built cut.
+fn cut_result(mut operation: UniquePtr<ffi::BRepAlgoAPI_Cut>) -> Result<BooleanShape, Error> {
+    if !operation.IsDone() {
+        return Err(Error::BooleanFailed("cut", ffi::BRepAlgoAPI_Cut_errors(&operation)));
+    }
+    let warnings = non_empty(ffi::BRepAlgoAPI_Cut_warnings(&operation));
+    let new_edges = edges_from_list(operation.pin_mut().SectionEdges());
+    let shape = Shape::from_shape(operation.pin_mut().Shape());
+    let history = ShapeHistory::from_handle(ffi::BRepAlgoAPI_Cut_history(&operation));
+    Ok(BooleanShape { shape, new_edges, history, warnings })
+}
+
+/// The outcome of a built fuse.
+fn fuse_result(mut operation: UniquePtr<ffi::BRepAlgoAPI_Fuse>) -> Result<BooleanShape, Error> {
+    if !operation.IsDone() {
+        return Err(Error::BooleanFailed("fuse", ffi::BRepAlgoAPI_Fuse_errors(&operation)));
+    }
+    let warnings = non_empty(ffi::BRepAlgoAPI_Fuse_warnings(&operation));
+    let new_edges = edges_from_list(operation.pin_mut().SectionEdges());
+    let shape = Shape::from_shape(operation.pin_mut().Shape());
+    let history = ShapeHistory::from_handle(ffi::BRepAlgoAPI_Fuse_history(&operation));
+    Ok(BooleanShape { shape, new_edges, history, warnings })
+}
+
+/// The outcome of a built common.
+fn common_result(
+    mut operation: UniquePtr<ffi::BRepAlgoAPI_Common>,
+) -> Result<BooleanShape, Error> {
     if !operation.IsDone() {
         return Err(Error::BooleanFailed("common", ffi::BRepAlgoAPI_Common_errors(&operation)));
     }
@@ -135,8 +153,115 @@ pub(crate) fn common(
     Ok(BooleanShape { shape, new_edges, history, warnings })
 }
 
-fn single(shape: &ffi::TopoDS_Shape) -> cxx::UniquePtr<ffi::TopTools_ListOfShape> {
+fn single(shape: &ffi::TopoDS_Shape) -> UniquePtr<ffi::TopTools_ListOfShape> {
     let mut list = ffi::new_list_of_shape();
     ffi::shape_list_append_shape(list.pin_mut(), shape);
     list
+}
+
+/// Two shapes intersected once (`BOPAlgo_PaveFiller`), from which each boolean
+/// between them is built without intersecting them again.
+///
+/// Like the booleans on [`Shape`], the intersection may modify its inputs
+/// (tolerances, added p-curves); pass deep copies to keep the originals intact.
+pub struct BooleanPair {
+    filler: UniquePtr<ffi::BOPAlgo_PaveFiller>,
+    object: Shape,
+    tool: Shape,
+}
+
+impl BooleanPair {
+    /// Intersect `object` with `tool`. `fuzz` is the additional intersection
+    /// tolerance, as for [`Shape::subtract_with_fuzz`].
+    pub fn new(object: &Shape, tool: &Shape, fuzz: f64) -> Result<Self, Error> {
+        let mut arguments = ffi::new_list_of_shape();
+        ffi::shape_list_append_shape(arguments.pin_mut(), &object.inner);
+        ffi::shape_list_append_shape(arguments.pin_mut(), &tool.inner);
+
+        let mut filler = ffi::BOPAlgo_PaveFiller_ctor();
+        filler.pin_mut().SetArguments(&arguments);
+        filler.pin_mut().SetFuzzyValue(fuzz);
+        filler.pin_mut().Perform(&ffi::Message_ProgressRange_ctor());
+        if filler.HasErrors() {
+            return Err(Error::BooleanFailed(
+                "intersection",
+                ffi::BOPAlgo_PaveFiller_errors(&filler),
+            ));
+        }
+        // The operations must be given the very shapes the filler intersected.
+        Ok(Self { filler, object: object.clone(), tool: tool.clone() })
+    }
+
+    // Each operation borrows the filler, so it is built and dropped within the
+    // call that uses it.
+
+    /// `object ∩ tool`.
+    pub fn intersect(&self) -> Result<BooleanShape, Error> {
+        common_result(ffi::BRepAlgoAPI_Common_ctor_with_filler(
+            &self.object.inner,
+            &self.tool.inner,
+            &self.filler,
+        ))
+    }
+
+    /// `object − tool`.
+    pub fn subtract(&self) -> Result<BooleanShape, Error> {
+        cut_result(ffi::BRepAlgoAPI_Cut_ctor_with_filler(
+            &self.object.inner,
+            &self.tool.inner,
+            &self.filler,
+            true,
+        ))
+    }
+
+    /// `tool − object`.
+    pub fn subtract_reversed(&self) -> Result<BooleanShape, Error> {
+        cut_result(ffi::BRepAlgoAPI_Cut_ctor_with_filler(
+            &self.object.inner,
+            &self.tool.inner,
+            &self.filler,
+            false,
+        ))
+    }
+
+    /// `object ∪ tool`.
+    pub fn union(&self) -> Result<BooleanShape, Error> {
+        fuse_result(ffi::BRepAlgoAPI_Fuse_ctor_with_filler(
+            &self.object.inner,
+            &self.tool.inner,
+            &self.filler,
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BooleanPair;
+    use crate::primitives::Shape;
+    use glam::dvec3;
+    use std::f64::consts::PI;
+
+    fn assert_volume(shape: &Shape, expected: f64) {
+        let volume = shape.volume();
+        assert!(
+            (volume - expected).abs() < 1e-6 * expected,
+            "expected volume {expected}, got {volume}"
+        );
+    }
+
+    /// A 2-unit cube and a unit sphere centered on its far corner, which share
+    /// an eighth of the sphere.
+    #[test]
+    fn pair_builds_every_boolean_from_one_intersection() {
+        let cube = Shape::cube(2.0);
+        let sphere = Shape::sphere(1.0).at(dvec3(2.0, 2.0, 2.0)).build();
+        let (cube_volume, sphere_volume, shared) = (8.0, 4.0 / 3.0 * PI, PI / 6.0);
+
+        let pair = BooleanPair::new(&cube, &sphere, 0.0).expect("intersection succeeds");
+
+        assert_volume(&pair.intersect().expect("intersect"), shared);
+        assert_volume(&pair.subtract().expect("subtract"), cube_volume - shared);
+        assert_volume(&pair.subtract_reversed().expect("subtract_reversed"), sphere_volume - shared);
+        assert_volume(&pair.union().expect("union"), cube_volume + sphere_volume - shared);
+    }
 }
