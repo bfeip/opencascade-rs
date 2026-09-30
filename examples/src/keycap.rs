@@ -100,7 +100,7 @@ pub fn shape() -> Result<Shape, Error> {
         Solid::loft([&scoop_right, &scoop_mid, &scoop_left])
     };
 
-    let keycap = keycap.subtract(&scoop)?.fillet_new_edges(0.6);
+    let keycap = keycap.subtract(&scoop)?.fillet_new_edges(0.6)?;
 
     let shell_bottom = Workplane::xy().rect(bx - thickness * 2.0, by - thickness * 2.0);
 
@@ -230,7 +230,7 @@ pub fn shape() -> Result<Shape, Error> {
         cross.set_global_translation(dvec3(x, y, 0.0));
         let cross = cross.extrude(dvec3(0.0, 0.0, 4.6));
 
-        keycap = keycap.subtract(&cross)?.chamfer_new_edges(0.2);
+        keycap = keycap.subtract(&cross)?.chamfer_new_edges(0.2)?;
     }
 
     Ok(keycap)

@@ -85,7 +85,7 @@ pub fn main() {
 
     while edge_explorer.More() {
         let edge = TopoDS_cast_to_edge(edge_explorer.Current());
-        make_fillet.pin_mut().add_edge(thickness / 12.0, edge);
+        make_fillet.pin_mut().add_edge(thickness / 12.0, edge).expect("the bottle edge fillets");
         edge_explorer.pin_mut().Next();
     }
 

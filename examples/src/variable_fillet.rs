@@ -19,7 +19,7 @@ pub fn shape() -> Result<Shape, Error> {
     shape = shape.variable_fillet_edge(
         [(0.0, 7.0), (0.2, 20.0), (0.5, 3.0), (0.8, 20.0), (1.0, 7.0)],
         &first_edge,
-    );
+    )?;
 
     // Or define fillet radii by providing n, the number of radii to generate,
     // and a function which accepts t and returns a radius for the fillet at t.
@@ -31,16 +31,16 @@ pub fn shape() -> Result<Shape, Error> {
             (val + 0.2) * 10.0
         }),
         &another_edge,
-    );
+    )?;
 
     let left_face_edges = shape.faces().farthest(Direction::NegX).edges();
 
     // Fillet all edges on the left face with a rough bell curve, for fun.
-    Ok(shape.variable_fillet_edges(
+    shape.variable_fillet_edges(
         approximate_function(num_radii, |t| {
             let val = ((2.0 * std::f64::consts::PI * (t - 1.0 / 4.0)).sin() + 1.0) / 2.0;
             val * 10.0
         }),
         left_face_edges,
-    ))
+    )
 }

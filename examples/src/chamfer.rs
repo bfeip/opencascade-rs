@@ -17,7 +17,7 @@ pub fn shape() -> Result<Shape, Error> {
     let handle_face = Face::from_wire(&handle)?;
 
     let handle_body = handle_face.extrude(dvec3(0.0, 0.0, -10.1));
-    let chamfered_shape = chamfered_box.union(&handle_body)?.chamfer_new_edges(0.5);
+    let chamfered_shape = chamfered_box.union(&handle_body)?.chamfer_new_edges(0.5)?;
 
     // Chamfer the top of the protrusion
     let top_edges = chamfered_shape
@@ -25,7 +25,7 @@ pub fn shape() -> Result<Shape, Error> {
         .farthest(Direction::NegZ) // Get the face whose center of mass is the farthest in the negative Z direction
         .edges(); // Get all the edges of this face
 
-    Ok(chamfered_shape.chamfer_edges(1.0, top_edges))
+    chamfered_shape.chamfer_edges(1.0, top_edges)
 
     // Can also just chamfer the whole shape with:
     // chamfered_shape.chamfer(0.5)

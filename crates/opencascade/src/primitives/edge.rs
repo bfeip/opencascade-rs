@@ -192,6 +192,16 @@ impl Edge {
         dvec3(point.X(), point.Y(), point.Z())
     }
 
+    /// The point halfway through the edge's parameter range. Unlike the average
+    /// of the end points, it lies on the edge, curved or closed.
+    pub fn midpoint(&self) -> DVec3 {
+        let curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
+        let middle = 0.5 * (curve.FirstParameter() + curve.LastParameter());
+        let point = ffi::BRepAdaptor_Curve_value(&curve, middle);
+
+        dvec3(point.X(), point.Y(), point.Z())
+    }
+
     pub fn approximation_segments(&self) -> ApproximationSegmentIterator {
         let adaptor_curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
         let approximator = ffi::GCPnts_TangentialDeflection_ctor(&adaptor_curve, 0.1, 0.1);
@@ -289,5 +299,22 @@ mod tests {
         );
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn a_segment_midpoint_is_halfway_along_it() {
+        let edge = Edge::segment(dvec3(0.0, 0.0, 0.0), dvec3(2.0, 4.0, 6.0)).unwrap();
+        assert!((edge.midpoint() - dvec3(1.0, 2.0, 3.0)).length() < 1e-9);
+    }
+
+    /// A full circle starts and ends at one point, so the average of its end
+    /// points is that point; its midpoint is across the circle from it.
+    #[test]
+    fn a_circle_midpoint_is_across_from_its_start() {
+        let circle = Edge::circle(DVec3::ZERO, DVec3::Z, 1.0).unwrap();
+        let (start, middle) = (circle.start_point(), circle.midpoint());
+
+        assert!((middle.length() - 1.0).abs() < 1e-9, "the midpoint is off the circle");
+        assert!((middle + start).length() < 1e-9, "the midpoint is not across from the start");
     }
 }

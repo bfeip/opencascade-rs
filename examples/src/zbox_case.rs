@@ -61,7 +61,7 @@ pub fn shape() -> Result<Shape, Error> {
 
         let bottom_hook_edges =
             hook.faces().farthest(Direction::NegY).edges().parallel_to(Direction::PosZ);
-        hook = hook.fillet_edges(10.0, bottom_hook_edges);
+        hook = hook.fillet_edges(10.0, bottom_hook_edges)?;
 
         case_box = case_box.union(&hook)?;
     }

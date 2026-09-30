@@ -26,7 +26,7 @@ pub fn shape() -> Result<Shape, Error> {
     let wire_profile = Wire::from_wires([&wire, &mirrored_wire])?;
     let face_profile = Face::from_wire(&wire_profile)?;
 
-    let body = face_profile.extrude(dvec3(0.0, 0.0, height)).into_shape().fillet(thickness / 12.0);
+    let body = face_profile.extrude(dvec3(0.0, 0.0, height)).into_shape().fillet(thickness / 12.0)?;
 
     // Create the neck and join it with the body
     let neck_radius = thickness / 4.0;

@@ -18,5 +18,5 @@ pub fn shape() -> Result<Shape, Error> {
 
     let top_edges = shape.faces().farthest(Direction::PosZ).edges();
 
-    Ok(shape.chamfer_edges(0.7, top_edges))
+    shape.chamfer_edges(0.7, top_edges)
 }

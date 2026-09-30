@@ -57,6 +57,8 @@ pub enum Error {
     DraftFailed(DraftError),
     #[error("failed to offset shape: {0:?}")]
     OffsetFailed(OffsetError),
+    #[error("failed to fillet or chamfer edges: {0:?}")]
+    FilletFailed(FilletError),
 }
 
 /// Reason a `BRepBuilderAPI_MakeEdge` failed to produce an edge.
@@ -187,6 +189,38 @@ impl From<ffi::BRepOffset_Error> for OffsetError {
             E::BRepOffset_CannotExtentEdge => Self::CannotExtentEdge,
             E::BRepOffset_UserBreak => Self::UserBreak,
             E::BRepOffset_MixedConnectivity => Self::MixedConnectivity,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// Reason a `BRepFilletAPI_MakeFillet` or `BRepFilletAPI_MakeChamfer` failed.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum FilletError {
+    /// None of the edges borders two faces of the shape.
+    NoSuitableEdges,
+    /// The blend could not be traced along an edge, typically because it is
+    /// too large for the faces beside it.
+    WalkingFailure,
+    /// No starting section could be found for the blend.
+    StartSolutionFailure,
+    /// The blend surface would twist over itself.
+    TwistedSurface,
+    /// The build finished but its result is not a valid shape, typically
+    /// because neighboring blends overlap.
+    InvalidResult,
+    /// An unspecified failure, or an error code not recognized by this wrapper
+    /// (including a spurious "no error").
+    Unknown,
+}
+
+impl From<ffi::ChFiDS_ErrorStatus> for FilletError {
+    fn from(error: ffi::ChFiDS_ErrorStatus) -> Self {
+        use ffi::ChFiDS_ErrorStatus as E;
+        match error {
+            E::ChFiDS_WalkingFailure => Self::WalkingFailure,
+            E::ChFiDS_StartsolFailure => Self::StartSolutionFailure,
+            E::ChFiDS_TwistedSurface => Self::TwistedSurface,
             _ => Self::Unknown,
         }
     }

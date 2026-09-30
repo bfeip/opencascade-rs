@@ -6,7 +6,7 @@ use crate::{
         BooleanShape, Compound, Edge, EdgeIterator, EdgeType, Face, FaceIterator, JoinType,
         ShapeType, Shell, Solid, SubShapeIterator, Vertex, VertexIterator, Wire, WireIterator,
     },
-    Error, OffsetError,
+    Error, FilletError, OffsetError,
 };
 use cxx::UniquePtr;
 use glam::{dvec2, dvec3, DVec3};
@@ -451,46 +451,49 @@ impl Shape {
         ffi::TopExp_Explorer_ctor(&self.inner, ty.into()).More()
     }
 
-    #[must_use]
-    pub fn fillet_edge(&self, radius: f64, edge: &Edge) -> Self {
+    pub fn fillet_edge(&self, radius: f64, edge: &Edge) -> Result<Self, Error> {
         self.fillet_edges(radius, [edge])
     }
 
-    #[must_use]
     pub fn variable_fillet_edge(
         &self,
         radius_values: impl IntoIterator<Item = (f64, f64)>,
         edge: &Edge,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         self.variable_fillet_edges(radius_values, [edge])
     }
 
-    #[must_use]
-    pub fn chamfer_edge(&self, distance: f64, edge: &Edge) -> Self {
+    pub fn chamfer_edge(&self, distance: f64, edge: &Edge) -> Result<Self, Error> {
         self.chamfer_edges(distance, [edge])
     }
 
-    #[must_use]
+    /// Rounds `edges` to a constant `radius` (`BRepFilletAPI_MakeFillet`).
+    ///
+    /// Each edge carries the chain of edges tangent to it along with it.
     pub fn fillet_edges<T: AsRef<Edge>>(
         &self,
         radius: f64,
         edges: impl IntoIterator<Item = T>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let mut make_fillet = ffi::BRepFilletAPI_MakeFillet_ctor(&self.inner);
 
         for edge in edges.into_iter() {
-            make_fillet.pin_mut().add_edge(radius, &edge.as_ref().inner);
+            make_fillet
+                .pin_mut()
+                .add_edge(radius, &edge.as_ref().inner)
+                .map_err(|_| Error::FilletFailed(FilletError::Unknown))?;
         }
 
-        Self::from_shape(make_fillet.pin_mut().Shape())
+        fillet_result(make_fillet)
     }
 
-    #[must_use]
+    /// Rounds `edges` to a radius that varies along each of them, given as
+    /// `(t, radius)` pairs with `t` running from 0 to 1.
     pub fn variable_fillet_edges<T: AsRef<Edge>>(
         &self,
         radius_values: impl IntoIterator<Item = (f64, f64)>,
         edges: impl IntoIterator<Item = T>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let radius_values: Vec<_> = radius_values.into_iter().collect();
         let mut array = ffi::TColgp_Array1OfPnt2d_ctor(1, radius_values.len() as i32);
 
@@ -501,37 +504,67 @@ impl Shape {
         let mut make_fillet = ffi::BRepFilletAPI_MakeFillet_ctor(&self.inner);
 
         for edge in edges.into_iter() {
-            make_fillet.pin_mut().variable_add_edge(&array, &edge.as_ref().inner);
+            make_fillet
+                .pin_mut()
+                .variable_add_edge(&array, &edge.as_ref().inner)
+                .map_err(|_| Error::FilletFailed(FilletError::Unknown))?;
         }
 
-        Self::from_shape(make_fillet.pin_mut().Shape())
+        fillet_result(make_fillet)
     }
 
-    #[must_use]
+    /// Bevels `edges`, cutting `distance` back along both faces of each
+    /// (`BRepFilletAPI_MakeChamfer`).
+    ///
+    /// Each edge carries the chain of edges tangent to it along with it.
     pub fn chamfer_edges<T: AsRef<Edge>>(
         &self,
         distance: f64,
         edges: impl IntoIterator<Item = T>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let mut make_chamfer = ffi::BRepFilletAPI_MakeChamfer_ctor(&self.inner);
 
         for edge in edges.into_iter() {
-            make_chamfer.pin_mut().add_edge(distance, &edge.as_ref().inner);
+            make_chamfer
+                .pin_mut()
+                .add_edge(distance, &edge.as_ref().inner)
+                .map_err(|_| Error::FilletFailed(FilletError::Unknown))?;
         }
 
-        Self::from_shape(make_chamfer.pin_mut().Shape())
+        chamfer_result(make_chamfer)
     }
 
     /// Performs fillet of `radius` on all edges of the shape
-    #[must_use]
-    pub fn fillet(&self, radius: f64) -> Self {
+    pub fn fillet(&self, radius: f64) -> Result<Self, Error> {
         self.fillet_edges(radius, self.edges())
     }
 
     /// Performs chamfer of `distance` on all edges of the shape
-    #[must_use]
-    pub fn chamfer(&self, distance: f64) -> Self {
+    pub fn chamfer(&self, distance: f64) -> Result<Self, Error> {
         self.chamfer_edges(distance, self.edges())
+    }
+
+    /// The faces of this shape that `edge` bounds, each once — two for an
+    /// edge between faces, one for a seam or free edge, none for an edge
+    /// that is not part of the shape.
+    pub fn adjacent_faces(&self, edge: &Edge) -> Vec<Face> {
+        let mut edge_faces = ffi::new_indexed_data_map_of_shape_list_of_shape();
+        ffi::map_shapes_and_unique_ancestors(
+            &self.inner,
+            ffi::TopAbs_ShapeEnum::TopAbs_EDGE,
+            ffi::TopAbs_ShapeEnum::TopAbs_FACE,
+            edge_faces.pin_mut(),
+        );
+
+        // FindFromKey throws on an edge the map doesn't hold.
+        let index = edge_faces.FindIndex(ffi::cast_edge_to_shape(&edge.inner));
+        if index == 0 {
+            return Vec::new();
+        }
+        ffi::shape_list_to_vector(edge_faces.FindFromIndex(index))
+            .iter()
+            .map(|face| Face::from_face(ffi::TopoDS_cast_to_face(face)))
+            .collect()
     }
 
     pub fn subtract(&self, other: &Shape) -> Result<BooleanShape, Error> {
@@ -870,6 +903,13 @@ impl Shape {
     pub fn wires(&self) -> WireIterator {
         let explorer = ffi::TopExp_Explorer_ctor(&self.inner, ffi::TopAbs_ShapeEnum::TopAbs_WIRE);
         WireIterator { explorer }
+    }
+
+    /// Whether the shape passes OCCT's topological and geometric checks
+    /// (`BRepCheck_Analyzer`).
+    pub fn is_valid(&self) -> bool {
+        ffi::BRepCheck_Analyzer_ctor(&self.inner, true, false, false)
+            .is_ok_and(|analyzer| analyzer.IsValid())
     }
 
     /// Returns `true` if this shape has no underlying topology (null `myTShape`).
@@ -1284,6 +1324,60 @@ pub struct LineFaceHitPoint {
     pub point: DVec3,
 }
 
+/// The shape a fillet build produced, or why it failed.
+fn fillet_result(
+    mut make_fillet: UniquePtr<ffi::BRepFilletAPI_MakeFillet>,
+) -> Result<Shape, Error> {
+    // With no contour to build, OCCT throws rather than failing softly.
+    if make_fillet.NbContours() == 0 {
+        return Err(Error::FilletFailed(FilletError::NoSuitableEdges));
+    }
+
+    let built = make_fillet.pin_mut().Build(&ffi::Message_ProgressRange_ctor());
+    if built.is_err() || !make_fillet.IsDone() {
+        // StripeStatus dereferences its contour unchecked, so it is only
+        // asked about a contour FaultyContour actually named.
+        let contour = match make_fillet.NbFaultyContours() {
+            0 => 0,
+            _ => make_fillet.FaultyContour(1),
+        };
+        let reason = match contour {
+            0 => FilletError::Unknown,
+            contour => make_fillet.StripeStatus(contour).into(),
+        };
+        return Err(Error::FilletFailed(reason));
+    }
+
+    valid_result(Shape::from_shape(make_fillet.pin_mut().Shape()))
+}
+
+/// The shape a chamfer build produced, or why it failed. The chamfer builder
+/// does not say why a contour failed.
+fn chamfer_result(
+    mut make_chamfer: UniquePtr<ffi::BRepFilletAPI_MakeChamfer>,
+) -> Result<Shape, Error> {
+    // With no contour to build, OCCT throws rather than failing softly.
+    if make_chamfer.NbContours() == 0 {
+        return Err(Error::FilletFailed(FilletError::NoSuitableEdges));
+    }
+
+    let built = make_chamfer.pin_mut().Build(&ffi::Message_ProgressRange_ctor());
+    if built.is_err() || !make_chamfer.IsDone() {
+        return Err(Error::FilletFailed(FilletError::Unknown));
+    }
+
+    valid_result(Shape::from_shape(make_chamfer.pin_mut().Shape()))
+}
+
+/// A finished fillet or chamfer, unless it is broken: OCCT reports blends that
+/// overlap one another as done.
+fn valid_result(shape: Shape) -> Result<Shape, Error> {
+    match shape.is_valid() {
+        true => Ok(shape),
+        false => Err(Error::FilletFailed(FilletError::InvalidResult)),
+    }
+}
+
 /// The solid a thick-solid build produced, or why it failed.
 ///
 /// Only the join algorithm reports a reason; a failed simple thickening
@@ -1341,12 +1435,15 @@ impl ChamferMaker {
         Self { inner: make_chamfer }
     }
 
-    pub fn add_edge(&mut self, distance: f64, edge: &Edge) {
-        self.inner.pin_mut().add_edge(distance, &edge.inner);
+    pub fn add_edge(&mut self, distance: f64, edge: &Edge) -> Result<(), Error> {
+        self.inner
+            .pin_mut()
+            .add_edge(distance, &edge.inner)
+            .map_err(|_| Error::FilletFailed(FilletError::Unknown))
     }
 
-    pub fn build(mut self) -> Shape {
-        Shape::from_shape(self.inner.pin_mut().Shape())
+    pub fn build(self) -> Result<Shape, Error> {
+        chamfer_result(self.inner)
     }
 }
 
@@ -1355,7 +1452,7 @@ mod tests {
     use super::Shape;
     use crate::primitives::{Compound, Edge, Face, JoinType, ShapeType, Wire};
     use crate::workplane::Workplane;
-    use crate::{DraftError, Error, OffsetError};
+    use crate::{DraftError, Error, FilletError, OffsetError};
     use glam::dvec3;
 
     fn max_y(shape: &Shape) -> f64 {
@@ -1797,7 +1894,7 @@ mod tests {
         // (a re-solved body or an error) is acceptable; crashing is not.
         let cube = Shape::cube(2.0);
         let edge = cube.edges().next().expect("cube has edges");
-        let filleted = cube.fillet_edge(0.2, &edge);
+        let filleted = cube.fillet_edge(0.2, &edge).expect("a small fillet on a cube succeeds");
         let top = top_face(&filleted);
         let mat = x_rotation_about(top.center_of_mass(), 0.2);
         match filleted.tweak_faces([top], mat) {
@@ -2237,5 +2334,113 @@ mod tests {
             assert_eq!(slab.shape_type(), ShapeType::Solid);
             assert!((slab.volume() - 3.0).abs() < 1e-6, "offset {offset}: got {}", slab.volume());
         }
+    }
+
+    /// Rounded to radius r, an edge of the 2³ cube loses a groove of r² less a
+    /// quarter circle, all along its length of 2.
+    #[test]
+    fn filleting_a_cube_edge_rounds_it() {
+        let cube = Shape::cube(2.0);
+        let edge = cube.edges().next().unwrap();
+        let radius = 0.5;
+
+        let filleted = cube.fillet_edge(radius, &edge).unwrap();
+        let expected = 8.0 - 2.0 * radius * radius * (1.0 - std::f64::consts::FRAC_PI_4);
+        assert!((filleted.volume() - expected).abs() < 1e-6, "got {}", filleted.volume());
+    }
+
+    /// Bevelled back d along both faces, an edge of the 2³ cube loses a
+    /// right-angled prism with legs d, all along its length of 2.
+    #[test]
+    fn chamfering_a_cube_edge_bevels_it() {
+        let cube = Shape::cube(2.0);
+        let edge = cube.edges().next().unwrap();
+        let distance = 0.5;
+
+        let chamfered = cube.chamfer_edge(distance, &edge).unwrap();
+        let expected = 8.0 - distance * distance;
+        assert!((chamfered.volume() - expected).abs() < 1e-6, "got {}", chamfered.volume());
+    }
+
+    /// A radius far wider than the faces beside the edge is reported, not
+    /// aborted on.
+    #[test]
+    fn an_oversized_fillet_is_an_error() {
+        let cube = Shape::cube(2.0);
+        let edge = cube.edges().next().unwrap();
+
+        let result = cube.fillet_edge(5.0, &edge);
+        assert!(matches!(result, Err(Error::FilletFailed(_))), "got {:?}", result.err());
+    }
+
+    #[test]
+    fn an_oversized_chamfer_is_an_error() {
+        let cube = Shape::cube(2.0);
+        let edge = cube.edges().next().unwrap();
+
+        let result = cube.chamfer_edge(5.0, &edge);
+        assert!(matches!(result, Err(Error::FilletFailed(_))), "got {:?}", result.err());
+    }
+
+    /// Past half the cube's side, neighbouring fillets overlap. OCCT reports
+    /// the build as done; the broken shape it made must not get out.
+    #[test]
+    fn overlapping_fillets_are_an_error() {
+        let result = Shape::cube(2.0).fillet(1.5);
+        assert!(
+            matches!(result, Err(Error::FilletFailed(FilletError::InvalidResult))),
+            "got {:?}",
+            result.err()
+        );
+    }
+
+    /// A lone face's edges border only that face: there is no corner to round
+    /// or bevel.
+    #[test]
+    fn a_free_edge_cannot_be_filleted_or_chamfered() {
+        let sheet: Shape = Workplane::xy().rect(2.0, 2.0).to_face().unwrap().into();
+        let edge = sheet.edges().next().unwrap();
+
+        let filleted = sheet.fillet_edge(0.2, &edge);
+        assert!(
+            matches!(filleted, Err(Error::FilletFailed(FilletError::NoSuitableEdges))),
+            "got {:?}",
+            filleted.err()
+        );
+        let chamfered = sheet.chamfer_edge(0.2, &edge);
+        assert!(
+            matches!(chamfered, Err(Error::FilletFailed(FilletError::NoSuitableEdges))),
+            "got {:?}",
+            chamfered.err()
+        );
+    }
+
+    #[test]
+    fn an_edge_between_two_faces_has_both() {
+        let cube = Shape::cube(2.0);
+        let edge = cube.edges().next().unwrap();
+
+        let faces = cube.adjacent_faces(&edge);
+        assert_eq!(faces.len(), 2);
+        assert!(!faces[0].is_same(&faces[1]));
+        assert!(faces.iter().all(|face| face.edges().any(|e| e.is_same(&edge))));
+    }
+
+    /// A cylinder's seam runs down its side face twice, but that is one face.
+    #[test]
+    fn a_seam_edge_has_one_face() {
+        let cylinder = Shape::cylinder_radius_height(1.0, 2.0);
+        let seam = cylinder.seam_edges().into_iter().next().expect("a cylinder has a seam");
+
+        assert_eq!(cylinder.adjacent_faces(&seam).len(), 1);
+    }
+
+    #[test]
+    fn an_edge_of_another_shape_has_no_faces() {
+        let cube = Shape::cube(2.0);
+        let other = Shape::cube(1.0);
+        let edge = other.edges().next().unwrap();
+
+        assert!(cube.adjacent_faces(&edge).is_empty());
     }
 }

@@ -45,7 +45,7 @@ pub fn shape() -> Result<Shape, Error> {
         pipe_solid.faces().farthest(Direction::PosX).edges().parallel_to(Direction::PosZ);
 
     let mut bracket =
-        pipe_solid.fillet_edges(width / 2.5, left_edges.chain(right_edges)).fillet(1.0);
+        pipe_solid.fillet_edges(width / 2.5, left_edges.chain(right_edges))?.fillet(1.0)?;
 
     let drill_point = bend_start + (leg_length / 2.0);
 
@@ -61,7 +61,7 @@ pub fn shape() -> Result<Shape, Error> {
             3.0,
         );
 
-        bracket = bracket.subtract(&cylinder)?.chamfer_new_edges(0.3);
+        bracket = bracket.subtract(&cylinder)?.chamfer_new_edges(0.3)?;
     }
 
     for x_pos in [drill_point, -drill_point] {

@@ -32,7 +32,7 @@ pub fn shape() -> Result<Shape, Error> {
 
     let top_edges = bracket.faces().farthest(Direction::PosZ).edges().parallel_to(Direction::PosX);
 
-    bracket = bracket.fillet_edges(thumbtack_big_diameter / 2.1, top_edges);
+    bracket = bracket.fillet_edges(thumbtack_big_diameter / 2.1, top_edges)?;
 
     let cylinder = Shape::cylinder(
         dvec3(thickness, thumbtack_big_radius, -thumbtack_big_radius),
@@ -41,7 +41,7 @@ pub fn shape() -> Result<Shape, Error> {
         thickness - 1.0,
     );
 
-    bracket = bracket.subtract(&cylinder)?.fillet(0.2);
+    bracket = bracket.subtract(&cylinder)?.fillet(0.2)?;
 
     bracket = bracket.drill_hole(
         dvec3(thickness, thumbtack_big_radius, -thumbtack_big_radius),

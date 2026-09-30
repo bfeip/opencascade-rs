@@ -1,5 +1,5 @@
 use crate::{
-    primitives::{boolean_shape, BooleanShape, Compound, Edge, Face, Wire},
+    primitives::{boolean_shape, BooleanShape, Compound, Edge, Face, Shape, Wire},
     Error,
 };
 use cxx::UniquePtr;
@@ -27,18 +27,11 @@ impl Solid {
     // https://neweopencascade.wordpress.com/2018/10/17/lets-talk-about-fillets/
     // Key takeaway: Use the `SectionEdges` function to retrieve edges that were
     // the result of combining two shapes.
-    #[must_use]
-    pub fn fillet_edge(&self, radius: f64, edge: &Edge) -> Compound {
-        let inner_shape = ffi::cast_solid_to_shape(&self.inner);
+    pub fn fillet_edge(&self, radius: f64, edge: &Edge) -> Result<Compound, Error> {
+        let shape = Shape::from_shape(ffi::cast_solid_to_shape(&self.inner));
+        let filleted = shape.fillet_edge(radius, edge)?;
 
-        let mut make_fillet = ffi::BRepFilletAPI_MakeFillet_ctor(inner_shape);
-        make_fillet.pin_mut().add_edge(radius, &edge.inner);
-
-        let filleted_shape = make_fillet.pin_mut().Shape();
-
-        let compound = ffi::TopoDS_cast_to_compound(filleted_shape);
-
-        Compound::from_compound(compound)
+        Ok(Compound::from_compound(ffi::TopoDS_cast_to_compound(&filleted.inner)))
     }
 
     pub fn loft<T: AsRef<Wire>>(wires: impl IntoIterator<Item = T>) -> Self {

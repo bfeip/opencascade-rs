@@ -203,7 +203,7 @@ fn case_outer_box() -> Result<Shape, Error> {
     let top_edges = outer_box.faces().farthest(Direction::PosZ).edges();
     let bottom_edges = outer_box.faces().farthest(Direction::NegZ).edges();
 
-    Ok(outer_box.chamfer_edges(1.5, top_edges.chain(bottom_edges)))
+    outer_box.chamfer_edges(1.5, top_edges.chain(bottom_edges))
 }
 
 fn case_inner_box() -> Result<Shape, Error> {
@@ -412,7 +412,7 @@ pub fn shape() -> Result<Shape, Error> {
 
     let case = case_outer_box()?
         .subtract(&inner_box)?
-        .fillet_new_edges(0.3)
+        .fillet_new_edges(0.3)?
         .union(&top_shelf)?
         .union(&bottom_shelf)?
         .subtract(&usb_cutout)?;
@@ -422,7 +422,7 @@ pub fn shape() -> Result<Shape, Error> {
         .filter(|e| e.start_point().y > 0.0) // Only chamfer edges on the exterior of the case
         .collect();
 
-    let case = case.chamfer_edges(1.0, new_edges);
+    let case = case.chamfer_edges(1.0, new_edges)?;
 
     let mut case = case.into_shape();
 

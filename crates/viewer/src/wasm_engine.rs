@@ -176,7 +176,7 @@ impl HostChamferMaker for ModelHost {
     ) -> Result<(), anyhow::Error> {
         let chamfer_maker = &mut self.chamfer_makers.get_mut(&chamfer_maker_resource)?;
         let edge = self.edges.get(&edge_resource)?;
-        chamfer_maker.add_edge(distance, edge);
+        chamfer_maker.add_edge(distance, edge)?;
 
         Ok(())
     }
@@ -185,7 +185,7 @@ impl HostChamferMaker for ModelHost {
         &mut self,
         resource: Resource<occ::ChamferMaker>,
     ) -> Result<Resource<occ::Shape>, anyhow::Error> {
-        let shape = self.chamfer_makers.delete(resource)?.build();
+        let shape = self.chamfer_makers.delete(resource)?.build()?;
         let shape_resource = self.shapes.push(shape)?;
 
         Ok(shape_resource)

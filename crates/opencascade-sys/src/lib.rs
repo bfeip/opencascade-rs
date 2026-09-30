@@ -130,6 +130,16 @@ pub mod ffi {
 
     #[derive(Debug)]
     #[repr(u32)]
+    pub enum ChFiDS_ErrorStatus {
+        ChFiDS_Ok,
+        ChFiDS_Error,
+        ChFiDS_WalkingFailure,
+        ChFiDS_StartsolFailure,
+        ChFiDS_TwistedSurface,
+    }
+
+    #[derive(Debug)]
+    #[repr(u32)]
     pub enum XCAFDimTolObjects_DimensionType {
         XCAFDimTolObjects_DimensionType_Location_None,
         XCAFDimTolObjects_DimensionType_Location_CurvedDistance,
@@ -858,8 +868,21 @@ pub mod ffi {
         pub fn BRepLibBuildCurves3d(shape: &TopoDS_Shape) -> bool;
         pub fn BRepLibOrientClosedSolid(solid: Pin<&mut TopoDS_Solid>) -> bool;
 
+        // Validity
+        type BRepCheck_Analyzer;
+
+        #[cxx_name = "construct_unique"]
+        pub fn BRepCheck_Analyzer_ctor(
+            shape: &TopoDS_Shape,
+            geom_controls: bool,
+            is_parallel: bool,
+            is_exact: bool,
+        ) -> Result<UniquePtr<BRepCheck_Analyzer>>;
+        pub fn IsValid(self: &BRepCheck_Analyzer) -> bool;
+
         // Fillets
         type BRepFilletAPI_MakeFillet;
+        type ChFiDS_ErrorStatus;
 
         #[cxx_name = "construct_unique"]
         pub fn BRepFilletAPI_MakeFillet_ctor(
@@ -867,17 +890,28 @@ pub mod ffi {
         ) -> UniquePtr<BRepFilletAPI_MakeFillet>;
 
         #[rust_name = "add_edge"]
-        pub fn Add(self: Pin<&mut BRepFilletAPI_MakeFillet>, radius: f64, edge: &TopoDS_Edge);
+        pub fn Add(
+            self: Pin<&mut BRepFilletAPI_MakeFillet>,
+            radius: f64,
+            edge: &TopoDS_Edge,
+        ) -> Result<()>;
 
         #[rust_name = "variable_add_edge"]
         pub fn Add(
             self: Pin<&mut BRepFilletAPI_MakeFillet>,
             radius_values: &TColgp_Array1OfPnt2d,
             edge: &TopoDS_Edge,
-        );
+        ) -> Result<()>;
 
+        pub fn NbContours(self: &BRepFilletAPI_MakeFillet) -> i32;
+        pub fn NbFaultyContours(self: &BRepFilletAPI_MakeFillet) -> i32;
+        pub fn FaultyContour(self: &BRepFilletAPI_MakeFillet, i: i32) -> i32;
+        pub fn StripeStatus(self: &BRepFilletAPI_MakeFillet, ic: i32) -> ChFiDS_ErrorStatus;
         pub fn Shape(self: Pin<&mut BRepFilletAPI_MakeFillet>) -> &TopoDS_Shape;
-        pub fn Build(self: Pin<&mut BRepFilletAPI_MakeFillet>, progress: &Message_ProgressRange);
+        pub fn Build(
+            self: Pin<&mut BRepFilletAPI_MakeFillet>,
+            progress: &Message_ProgressRange,
+        ) -> Result<()>;
         pub fn IsDone(self: &BRepFilletAPI_MakeFillet) -> bool;
 
         type BRepFilletAPI_MakeFillet2d;
@@ -919,9 +953,17 @@ pub mod ffi {
         ) -> UniquePtr<BRepFilletAPI_MakeChamfer>;
 
         #[rust_name = "add_edge"]
-        pub fn Add(self: Pin<&mut BRepFilletAPI_MakeChamfer>, distance: f64, edge: &TopoDS_Edge);
+        pub fn Add(
+            self: Pin<&mut BRepFilletAPI_MakeChamfer>,
+            distance: f64,
+            edge: &TopoDS_Edge,
+        ) -> Result<()>;
+        pub fn NbContours(self: &BRepFilletAPI_MakeChamfer) -> i32;
         pub fn Shape(self: Pin<&mut BRepFilletAPI_MakeChamfer>) -> &TopoDS_Shape;
-        pub fn Build(self: Pin<&mut BRepFilletAPI_MakeChamfer>, progress: &Message_ProgressRange);
+        pub fn Build(
+            self: Pin<&mut BRepFilletAPI_MakeChamfer>,
+            progress: &Message_ProgressRange,
+        ) -> Result<()>;
         pub fn IsDone(self: &BRepFilletAPI_MakeChamfer) -> bool;
 
         // Offset
