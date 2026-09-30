@@ -30,6 +30,7 @@
 #include <BRepLib.hxx>
 #include <BRepLib_ToolTriangulatedShape.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
+#include <BRepOffsetAPI_DraftAngle.hxx>
 #include <BRepOffsetAPI_MakeOffset.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
@@ -289,14 +290,19 @@ inline std::unique_ptr<gp_Pnt> BRepAdaptor_Curve_value(const BRepAdaptor_Curve &
   return std::unique_ptr<gp_Pnt>(new gp_Pnt(curve.Value(U)));
 }
 
+// BRepPrimAPI_MakePrism
+inline std::unique_ptr<TopoDS_Shape> BRepPrimAPI_MakePrism_FirstShape(BRepPrimAPI_MakePrism &prism) {
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(prism.FirstShape()));
+}
+
+inline std::unique_ptr<TopoDS_Shape> BRepPrimAPI_MakePrism_LastShape(BRepPrimAPI_MakePrism &prism) {
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(prism.LastShape()));
+}
+
 // BRepLib
 inline bool BRepLibBuildCurves3d(const TopoDS_Shape &shape) { return BRepLib::BuildCurves3d(shape); }
 
-inline void MakeThickSolidByJoin(BRepOffsetAPI_MakeThickSolid &make_thick_solid, const TopoDS_Shape &shape,
-                                 const TopTools_ListOfShape &closing_faces, const Standard_Real offset,
-                                 const Standard_Real tolerance) {
-  make_thick_solid.MakeThickSolidByJoin(shape, closing_faces, offset, tolerance);
-}
+inline bool BRepLibOrientClosedSolid(TopoDS_Solid &solid) { return BRepLib::OrientClosedSolid(solid); }
 
 // Geometric processing
 inline const gp_Ax1 &gp_OX() { return gp::OX(); }
@@ -1222,6 +1228,13 @@ BRepBuilderAPI_Transform_history(BRepBuilderAPI_Transform &op, const TopTools_Li
 inline std::unique_ptr<HandleBRepTools_History>
 BRepBuilderAPI_GTransform_history(BRepBuilderAPI_GTransform &op,
                                   const TopTools_ListOfShape &inputs) {
+  return std::unique_ptr<HandleBRepTools_History>(
+      new HandleBRepTools_History(new BRepTools_History(inputs, op)));
+}
+
+inline std::unique_ptr<HandleBRepTools_History>
+BRepOffsetAPI_DraftAngle_history(BRepOffsetAPI_DraftAngle &op,
+                                 const TopTools_ListOfShape &inputs) {
   return std::unique_ptr<HandleBRepTools_History>(
       new HandleBRepTools_History(new BRepTools_History(inputs, op)));
 }

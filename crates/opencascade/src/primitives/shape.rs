@@ -3,10 +3,10 @@ use crate::{
     mesh::{FaceRange, Mesh, Mesher},
     primitives::{
         boolean_shape, make_axis_1, make_axis_2, make_dir, make_point, make_point2d, make_vec,
-        BooleanShape, Compound, Edge, EdgeIterator, EdgeType, Face, FaceIterator, ShapeType, Shell,
-        Solid, SubShapeIterator, Vertex, VertexIterator, Wire, WireIterator,
+        BooleanShape, Compound, Edge, EdgeIterator, EdgeType, Face, FaceIterator, JoinType,
+        ShapeType, Shell, Solid, SubShapeIterator, Vertex, VertexIterator, Wire, WireIterator,
     },
-    Error,
+    Error, OffsetError,
 };
 use cxx::UniquePtr;
 use glam::{dvec2, dvec3, DVec3};
@@ -1139,12 +1139,17 @@ impl Shape {
         results
     }
 
-    #[must_use]
+    /// Hollows the shape into walls `offset` thick, open where
+    /// `faces_to_remove` were.
+    ///
+    /// A negative `offset` builds the walls inside the surface, a positive one
+    /// outside it. `join` shapes the walls where offset faces pull apart.
     pub fn hollow<T: AsRef<Face>>(
         &self,
         offset: f64,
         faces_to_remove: impl IntoIterator<Item = T>,
-    ) -> Self {
+        join: JoinType,
+    ) -> Result<Self, Error> {
         let mut faces_list = ffi::new_list_of_shape();
 
         for face in faces_to_remove.into_iter() {
@@ -1152,15 +1157,101 @@ impl Shape {
         }
 
         let mut solid_maker = ffi::BRepOffsetAPI_MakeThickSolid_ctor();
-        ffi::MakeThickSolidByJoin(solid_maker.pin_mut(), &self.inner, &faces_list, offset, 0.001);
-
-        Self::from_shape(solid_maker.pin_mut().Shape())
+        let built = solid_maker.pin_mut().MakeThickSolidByJoin(
+            &self.inner,
+            &faces_list,
+            offset,
+            0.001,
+            ffi::BRepOffset_Mode::BRepOffset_Skin,
+            false,
+            false,
+            join.into(),
+            false,
+            &ffi::Message_ProgressRange_ctor(),
+        );
+        thick_solid_result(solid_maker, built)
     }
 
-    #[must_use]
-    pub fn offset_surface(&self, offset: f64) -> Self {
+    /// Offsets the whole surface of the shape by `offset`, growing or
+    /// shrinking it.
+    pub fn offset_surface(&self, offset: f64, join: JoinType) -> Result<Self, Error> {
         let faces_to_remove: [Face; 0] = [];
-        self.hollow(offset, faces_to_remove)
+        self.hollow(offset, faces_to_remove, join)
+    }
+
+    /// Thickens a face or open shell into a solid `offset` thick, grown along
+    /// its normals — or against them, for a negative `offset`
+    /// (`BRepOffsetAPI_MakeThickSolid::MakeThickSolidBySimple`).
+    pub fn thicken(&self, offset: f64) -> Result<Self, Error> {
+        let mut solid_maker = ffi::BRepOffsetAPI_MakeThickSolid_ctor();
+        let built = solid_maker.pin_mut().MakeThickSolidBySimple(&self.inner, offset);
+        let thickened = thick_solid_result(solid_maker, built)?;
+
+        // The simple algorithm wraps its shell in a solid as it comes, which is
+        // inside out whenever the offset runs along the sheet's normal.
+        let mut solid = ffi::TopoDS_Solid_to_owned(ffi::TopoDS_cast_to_solid(&thickened.inner));
+        if !ffi::BRepLibOrientClosedSolid(solid.pin_mut()) {
+            return Err(Error::OffsetFailed(OffsetError::Unknown));
+        }
+        Ok(Self::from_shape(ffi::cast_solid_to_shape(&solid)))
+    }
+
+    /// Tapers `faces` by `angle` radians, tilting each about the line where it
+    /// crosses the neutral plane through `neutral_origin` with normal
+    /// `neutral_normal` (`BRepOffsetAPI_DraftAngle`).
+    ///
+    /// `pull` is the draft direction: a positive `angle` removes material on
+    /// the side of the neutral plane it points into, a negative one adds it.
+    /// Only planar, cylindrical and conical faces can be drafted, and a
+    /// cylinder or cone only along its axis.
+    pub fn draft_faces<T: AsRef<Face>>(
+        &self,
+        faces: impl IntoIterator<Item = T>,
+        pull: DVec3,
+        angle: f64,
+        neutral_origin: DVec3,
+        neutral_normal: DVec3,
+    ) -> Result<Shape, Error> {
+        Ok(self.draft_faces_with_history(faces, pull, angle, neutral_origin, neutral_normal)?.0)
+    }
+
+    /// Like [`Self::draft_faces`], additionally returning the sub-shape
+    /// history (input sub-shapes → their drafted images).
+    pub fn draft_faces_with_history<T: AsRef<Face>>(
+        &self,
+        faces: impl IntoIterator<Item = T>,
+        pull: DVec3,
+        angle: f64,
+        neutral_origin: DVec3,
+        neutral_normal: DVec3,
+    ) -> Result<(Shape, ShapeHistory), Error> {
+        let pull = make_dir(pull);
+        let neutral_plane = ffi::gp_Pln_ctor(&make_point(neutral_origin), &make_dir(neutral_normal));
+        let failed = |draft: &ffi::BRepOffsetAPI_DraftAngle| Error::DraftFailed(draft.Status().into());
+
+        let mut draft = ffi::BRepOffsetAPI_DraftAngle_ctor(&self.inner);
+        for face in faces.into_iter() {
+            let added =
+                draft.pin_mut().Add(&face.as_ref().inner, &pull, angle, &neutral_plane, true);
+            // Once an add fails, the algorithm refuses any further one.
+            if added.is_err() || !draft.AddDone() {
+                return Err(failed(&draft));
+            }
+        }
+        let built = draft.pin_mut().Build(&ffi::Message_ProgressRange_ctor());
+        if built.is_err() || !draft.IsDone() {
+            return Err(failed(&draft));
+        }
+
+        let shape = Self::from_shape(draft.pin_mut().Shape());
+        let mut inputs = ffi::new_list_of_shape();
+        ffi::shape_list_append_shape(inputs.pin_mut(), &self.inner);
+        let history = ShapeHistory::from_handle(ffi::BRepOffsetAPI_DraftAngle_history(
+            draft.pin_mut(),
+            &inputs,
+        ));
+
+        Ok((shape, history))
     }
 
     /// Drill a cylindrical hole along the line defined by point `p`
@@ -1191,6 +1282,20 @@ pub struct LineFaceHitPoint {
     pub v: f64,
     /// The intersection point
     pub point: DVec3,
+}
+
+/// The solid a thick-solid build produced, or why it failed.
+///
+/// Only the join algorithm reports a reason; a failed simple thickening
+/// surfaces as [`OffsetError::Unknown`](crate::OffsetError::Unknown).
+fn thick_solid_result(
+    mut solid_maker: UniquePtr<ffi::BRepOffsetAPI_MakeThickSolid>,
+    built: Result<(), cxx::Exception>,
+) -> Result<Shape, Error> {
+    if built.is_err() || !solid_maker.IsDone() {
+        return Err(Error::OffsetFailed(solid_maker.MakeOffset().Error().into()));
+    }
+    Ok(Shape::from_shape(solid_maker.pin_mut().Shape()))
 }
 
 /// Whether `mat` is affine (bottom row `0 0 0 1`) with a 3x3 part that is a
@@ -1248,8 +1353,9 @@ impl ChamferMaker {
 #[cfg(test)]
 mod tests {
     use super::Shape;
-    use crate::primitives::{Compound, Edge, Face, ShapeType, Wire};
-    use crate::Error;
+    use crate::primitives::{Compound, Edge, Face, JoinType, ShapeType, Wire};
+    use crate::workplane::Workplane;
+    use crate::{DraftError, Error, OffsetError};
     use glam::dvec3;
 
     fn max_y(shape: &Shape) -> f64 {
@@ -2028,5 +2134,108 @@ mod tests {
             total,
             failures.iter().take(10).map(String::as_str).collect::<Vec<_>>().join("\n")
         );
+    }
+
+    /// A prism of `profile` along +Z, and its side faces.
+    fn prism_sides(profile: &Face, height: f64) -> (Shape, Vec<Face>, Face, Face) {
+        let (solid, first, last) = profile.extrude_with_caps(dvec3(0.0, 0.0, height));
+        let prism: Shape = solid.into();
+        let sides = prism.faces().filter(|f| !f.is_same(&first) && !f.is_same(&last)).collect();
+        (prism, sides, first, last)
+    }
+
+    /// Pulled along +Z from a neutral plane at its base, a square prism
+    /// drafted by a positive angle narrows into a frustum; a negative one flares.
+    #[test]
+    fn drafting_the_sides_of_a_prism_tapers_it() {
+        let profile = Workplane::xy().rect(2.0, 2.0).to_face().unwrap();
+        let (height, angle) = (1.0, 10f64.to_radians());
+
+        for sign in [1.0, -1.0] {
+            let (prism, sides, _, last) = prism_sides(&profile, height);
+            let (drafted, history) = prism
+                .draft_faces_with_history(
+                    &sides,
+                    dvec3(0.0, 0.0, 1.0),
+                    sign * angle,
+                    dvec3(0.0, 0.0, 0.0),
+                    dvec3(0.0, 0.0, 1.0),
+                )
+                .unwrap();
+
+            // Every side moves in by h·tanθ at the top.
+            let top = 2.0 - 2.0 * sign * height * angle.tan();
+            let frustum = height / 3.0 * (4.0 + top * top + 2.0 * top);
+            assert!(
+                (drafted.volume() - frustum).abs() < 1e-6,
+                "sign {sign}: expected {frustum}, got {}",
+                drafted.volume()
+            );
+
+            // The history carries the top cap to its resized image.
+            let images = history.modified_faces(&last);
+            assert_eq!(images.len(), 1, "sign {sign}");
+            assert!((images[0].surface_area() - top * top).abs() < 1e-6, "sign {sign}");
+        }
+    }
+
+    /// A spline's swept side is a surface of linear extrusion, which the draft
+    /// algorithm cannot tilt: that must come back as an error, not an abort.
+    #[test]
+    fn drafting_a_spline_side_is_an_error() {
+        let spline = Edge::spline_from_points(
+            [dvec3(0.0, 0.0, 0.0), dvec3(2.0, 0.5, 0.0), dvec3(1.5, 2.0, 0.0), dvec3(-0.5, 1.0, 0.0)],
+            None,
+            true,
+        )
+        .unwrap();
+        let profile = Face::from_wire(&Wire::from_edges([&spline]).unwrap()).unwrap();
+        let (prism, sides, _, _) = prism_sides(&profile, 1.0);
+
+        let result = prism.draft_faces(
+            &sides,
+            dvec3(0.0, 0.0, 1.0),
+            5f64.to_radians(),
+            dvec3(0.0, 0.0, 0.0),
+            dvec3(0.0, 0.0, 1.0),
+        );
+        assert!(
+            matches!(result, Err(Error::DraftFailed(DraftError::FaceRecomputation))),
+            "got {:?}",
+            result.err()
+        );
+    }
+
+    /// Open at both ends, a square prism hollowed inward is a square tube.
+    #[test]
+    fn hollowing_a_prism_open_at_both_ends_leaves_a_tube() {
+        let profile = Workplane::xy().rect(2.0, 2.0).to_face().unwrap();
+        let (prism, _, first, last) = prism_sides(&profile, 2.0);
+
+        let tube = prism.hollow(-0.25, [first, last], JoinType::Intersection).unwrap();
+        let expected = (4.0 - 1.5 * 1.5) * 2.0;
+        assert!((tube.volume() - expected).abs() < 1e-6, "got {}", tube.volume());
+    }
+
+    #[test]
+    fn a_hollow_that_cannot_be_built_is_an_error() {
+        let result = Shape::cube(2.0).hollow(0.0, [] as [Face; 0], JoinType::Arc);
+        assert!(
+            matches!(result, Err(Error::OffsetFailed(OffsetError::NullOffset))),
+            "got {:?}",
+            result.err()
+        );
+    }
+
+    /// Grown to either side of the sheet, the slab is a proper solid: OCCT's
+    /// simple thickening leaves one of the two inside out.
+    #[test]
+    fn thickening_a_sheet_makes_a_slab_either_way() {
+        let sheet: Shape = Workplane::xy().rect(2.0, 3.0).to_face().unwrap().into();
+        for offset in [0.5, -0.5] {
+            let slab = sheet.thicken(offset).unwrap();
+            assert_eq!(slab.shape_type(), ShapeType::Solid);
+            assert!((slab.volume() - 3.0).abs() < 1e-6, "offset {offset}: got {}", slab.volume());
+        }
     }
 }

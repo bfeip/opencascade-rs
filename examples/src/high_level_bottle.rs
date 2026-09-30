@@ -1,6 +1,6 @@
 use glam::{dvec3, DVec3};
 use opencascade::{
-    primitives::{Direction::PosZ, Edge, Face, IntoShape, Shape, Wire},
+    primitives::{Direction::PosZ, Edge, Face, IntoShape, JoinType, Shape, Wire},
     Error,
 };
 
@@ -36,5 +36,5 @@ pub fn shape() -> Result<Shape, Error> {
     let bottle = neck.union(&body)?;
 
     let top_face = bottle.faces().farthest(PosZ);
-    Ok(bottle.hollow(-thickness / 50.0, [top_face]))
+    bottle.hollow(-thickness / 50.0, [top_face], JoinType::Arc)
 }

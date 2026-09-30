@@ -53,6 +53,10 @@ pub enum Error {
     CleanFailed(String),
     #[error("boolean {0} operation failed: {1}")]
     BooleanFailed(&'static str, String),
+    #[error("failed to apply draft angle: {0:?}")]
+    DraftFailed(DraftError),
+    #[error("failed to offset shape: {0:?}")]
+    OffsetFailed(OffsetError),
 }
 
 /// Reason a `BRepBuilderAPI_MakeEdge` failed to produce an edge.
@@ -124,6 +128,65 @@ impl From<ffi::BRepBuilderAPI_FaceError> for FaceError {
             E::BRepBuilderAPI_NotPlanar => Self::NotPlanar,
             E::BRepBuilderAPI_CurveProjectionFailed => Self::CurveProjectionFailed,
             E::BRepBuilderAPI_ParametersOutOfRange => Self::ParametersOutOfRange,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// Reason a `BRepOffsetAPI_DraftAngle` failed to taper a face.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum DraftError {
+    /// A face could not take the draft. Only planar, cylindrical and conical
+    /// faces can, and a cylinder or cone only along its axis.
+    FaceRecomputation,
+    EdgeRecomputation,
+    VertexRecomputation,
+    /// An error code not recognized by this wrapper (including a spurious "no error").
+    Unknown,
+}
+
+impl From<ffi::Draft_ErrorStatus> for DraftError {
+    fn from(error: ffi::Draft_ErrorStatus) -> Self {
+        use ffi::Draft_ErrorStatus as E;
+        match error {
+            E::Draft_FaceRecomputation => Self::FaceRecomputation,
+            E::Draft_EdgeRecomputation => Self::EdgeRecomputation,
+            E::Draft_VertexRecomputation => Self::VertexRecomputation,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// Reason a `BRepOffset_MakeOffset` failed to offset a shape.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum OffsetError {
+    BadNormalsOnGeometry,
+    C0Geometry,
+    NullOffset,
+    NotConnectedShell,
+    CannotTrimEdges,
+    CannotFuseVertices,
+    CannotExtentEdge,
+    UserBreak,
+    MixedConnectivity,
+    /// An unspecified failure, or an error code not recognized by this wrapper
+    /// (including a spurious "no error").
+    Unknown,
+}
+
+impl From<ffi::BRepOffset_Error> for OffsetError {
+    fn from(error: ffi::BRepOffset_Error) -> Self {
+        use ffi::BRepOffset_Error as E;
+        match error {
+            E::BRepOffset_BadNormalsOnGeometry => Self::BadNormalsOnGeometry,
+            E::BRepOffset_C0Geometry => Self::C0Geometry,
+            E::BRepOffset_NullOffset => Self::NullOffset,
+            E::BRepOffset_NotConnectedShell => Self::NotConnectedShell,
+            E::BRepOffset_CannotTrimEdges => Self::CannotTrimEdges,
+            E::BRepOffset_CannotFuseVertices => Self::CannotFuseVertices,
+            E::BRepOffset_CannotExtentEdge => Self::CannotExtentEdge,
+            E::BRepOffset_UserBreak => Self::UserBreak,
+            E::BRepOffset_MixedConnectivity => Self::MixedConnectivity,
             _ => Self::Unknown,
         }
     }

@@ -60,6 +60,13 @@ impl Face {
 
     #[must_use]
     pub fn extrude(&self, dir: DVec3) -> Solid {
+        self.extrude_with_caps(dir).0
+    }
+
+    /// [`extrude`](Self::extrude), also returning the prism's two caps: the
+    /// face where the sweep starts, and its copy where the sweep ends.
+    #[must_use]
+    pub fn extrude_with_caps(&self, dir: DVec3) -> (Solid, Face, Face) {
         let prism_vec = make_vec(dir);
 
         let copy = false;
@@ -68,10 +75,15 @@ impl Face {
         let inner_shape = ffi::cast_face_to_shape(&self.inner);
         let mut make_solid =
             ffi::BRepPrimAPI_MakePrism_ctor(inner_shape, &prism_vec, copy, canonize);
-        let extruded_shape = make_solid.pin_mut().Shape();
-        let solid = ffi::TopoDS_cast_to_solid(extruded_shape);
+        let solid = Solid::from_solid(ffi::TopoDS_cast_to_solid(make_solid.pin_mut().Shape()));
+        let first = ffi::BRepPrimAPI_MakePrism_FirstShape(make_solid.pin_mut());
+        let last = ffi::BRepPrimAPI_MakePrism_LastShape(make_solid.pin_mut());
 
-        Solid::from_solid(solid)
+        (
+            solid,
+            Face::from_face(ffi::TopoDS_cast_to_face(&first)),
+            Face::from_face(ffi::TopoDS_cast_to_face(&last)),
+        )
     }
 
     #[must_use]
@@ -529,5 +541,20 @@ mod tests {
             "Expected surface_area() to be ~35.0, was actually {}",
             face.surface_area()
         );
+    }
+
+    #[test]
+    fn extrude_with_caps_returns_the_profile_and_its_swept_copy() {
+        let face = Workplane::xy().rect(2.0, 3.0).to_face().unwrap();
+        let (solid, first, last) = face.extrude_with_caps(dvec3(0.0, 0.0, 4.0));
+
+        assert!(first.is_same(&face), "the prism starts on the profile itself");
+        let offset = last.center_of_mass() - face.center_of_mass();
+        assert!((offset - dvec3(0.0, 0.0, 4.0)).length() < 1e-9, "offset {offset}");
+
+        let solid: Shape = solid.into();
+        for cap in [&first, &last] {
+            assert!(solid.faces().any(|f| f.is_same(cap)), "a cap is not a face of the prism");
+        }
     }
 }

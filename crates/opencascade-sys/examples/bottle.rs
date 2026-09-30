@@ -9,13 +9,13 @@ use opencascade_sys::ffi::{
     BRepBuilderAPI_MakeWire_ctor, BRepBuilderAPI_MakeWire_edge_edge,
     BRepBuilderAPI_MakeWire_edge_edge_edge, BRepBuilderAPI_Transform_ctor,
     BRepFilletAPI_MakeFillet_ctor, BRepLibBuildCurves3d, BRepMesh_IncrementalMesh_ctor,
-    BRepOffsetAPI_MakeThickSolid_ctor, BRepOffsetAPI_ThruSections_ctor,
+    BRepOffsetAPI_MakeThickSolid_ctor, BRepOffsetAPI_ThruSections_ctor, BRepOffset_Mode,
     BRepPrimAPI_MakeCylinder_ctor, BRepPrimAPI_MakePrism_ctor, BRep_Builder_ctor,
     BRep_Builder_upcast_to_topods_builder, BRep_Tool_Surface, DynamicType, ExplorerCurrentShape,
     GCE2d_MakeSegment_point_point, GC_MakeArcOfCircle_Value, GC_MakeArcOfCircle_point_point_point,
     GC_MakeSegment_Value, GC_MakeSegment_point_point, Geom2d_Ellipse_ctor,
-    Geom2d_TrimmedCurve_ctor, Geom_CylindricalSurface_ctor, HandleGeom2d_TrimmedCurve_to_curve,
-    MakeThickSolidByJoin, StlAPI_Writer_ctor, TopAbs_ShapeEnum, TopExp_Explorer_ctor,
+    Geom2d_TrimmedCurve_ctor, GeomAbs_JoinType, Geom_CylindricalSurface_ctor,
+    HandleGeom2d_TrimmedCurve_to_curve, Message_ProgressRange_ctor, StlAPI_Writer_ctor, TopAbs_ShapeEnum, TopExp_Explorer_ctor,
     TopoDS_Compound_as_shape, TopoDS_Compound_ctor, TopoDS_Face, TopoDS_Face_to_owned,
     TopoDS_cast_to_edge, TopoDS_cast_to_face, TopoDS_cast_to_wire,
 };
@@ -138,13 +138,21 @@ pub fn main() {
     shape_list_append_face(faces_to_remove.pin_mut(), &top_face);
 
     let mut solid_maker = BRepOffsetAPI_MakeThickSolid_ctor();
-    MakeThickSolidByJoin(
-        solid_maker.pin_mut(),
-        body_shape,
-        &faces_to_remove,
-        -thickness / 50.0,
-        1.0e-3,
-    );
+    solid_maker
+        .pin_mut()
+        .MakeThickSolidByJoin(
+            body_shape,
+            &faces_to_remove,
+            -thickness / 50.0,
+            1.0e-3,
+            BRepOffset_Mode::BRepOffset_Skin,
+            false,
+            false,
+            GeomAbs_JoinType::GeomAbs_Arc,
+            false,
+            &Message_ProgressRange_ctor(),
+        )
+        .expect("the bottle hollows");
 
     let body_shape = solid_maker.pin_mut().Shape();
 

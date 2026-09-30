@@ -1,4 +1,6 @@
+// Bindings mirror OCCT signatures one to one, argument counts included.
 #[cxx::bridge]
+#[allow(clippy::too_many_arguments)]
 pub mod ffi {
     #[repr(u32)]
     #[derive(Debug)]
@@ -91,6 +93,39 @@ pub mod ffi {
         GeomAbs_Arc,
         GeomAbs_Tangent,
         GeomAbs_Intersection,
+    }
+
+    #[derive(Debug)]
+    #[repr(u32)]
+    pub enum BRepOffset_Mode {
+        BRepOffset_Skin,
+        BRepOffset_Pipe,
+        BRepOffset_RectoVerso,
+    }
+
+    #[derive(Debug)]
+    #[repr(u32)]
+    pub enum BRepOffset_Error {
+        BRepOffset_NoError,
+        BRepOffset_UnknownError,
+        BRepOffset_BadNormalsOnGeometry,
+        BRepOffset_C0Geometry,
+        BRepOffset_NullOffset,
+        BRepOffset_NotConnectedShell,
+        BRepOffset_CannotTrimEdges,
+        BRepOffset_CannotFuseVertices,
+        BRepOffset_CannotExtentEdge,
+        BRepOffset_UserBreak,
+        BRepOffset_MixedConnectivity,
+    }
+
+    #[derive(Debug)]
+    #[repr(u32)]
+    pub enum Draft_ErrorStatus {
+        Draft_NoError,
+        Draft_FaceRecomputation,
+        Draft_EdgeRecomputation,
+        Draft_VertexRecomputation,
     }
 
     #[derive(Debug)]
@@ -702,6 +737,12 @@ pub mod ffi {
         pub fn Shape(self: Pin<&mut BRepPrimAPI_MakePrism>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepPrimAPI_MakePrism>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepPrimAPI_MakePrism) -> bool;
+        pub fn BRepPrimAPI_MakePrism_FirstShape(
+            prism: Pin<&mut BRepPrimAPI_MakePrism>,
+        ) -> UniquePtr<TopoDS_Shape>;
+        pub fn BRepPrimAPI_MakePrism_LastShape(
+            prism: Pin<&mut BRepPrimAPI_MakePrism>,
+        ) -> UniquePtr<TopoDS_Shape>;
 
         type BRepFeat_MakeDPrism;
 
@@ -815,6 +856,7 @@ pub mod ffi {
 
         // BRepLib
         pub fn BRepLibBuildCurves3d(shape: &TopoDS_Shape) -> bool;
+        pub fn BRepLibOrientClosedSolid(solid: Pin<&mut TopoDS_Solid>) -> bool;
 
         // Fillets
         type BRepFilletAPI_MakeFillet;
@@ -912,18 +954,63 @@ pub mod ffi {
         pub fn BRepOffsetAPI_MakeThickSolid_ctor() -> UniquePtr<BRepOffsetAPI_MakeThickSolid>;
 
         pub fn MakeThickSolidByJoin(
-            make_thick_solid: Pin<&mut BRepOffsetAPI_MakeThickSolid>,
+            self: Pin<&mut BRepOffsetAPI_MakeThickSolid>,
             shape: &TopoDS_Shape,
             closing_faces: &TopTools_ListOfShape,
             offset: f64,
             tolerance: f64,
-        );
+            mode: BRepOffset_Mode,
+            intersection: bool,
+            self_intersection: bool,
+            join: GeomAbs_JoinType,
+            remove_internal_edges: bool,
+            progress: &Message_ProgressRange,
+        ) -> Result<()>;
+        pub fn MakeThickSolidBySimple(
+            self: Pin<&mut BRepOffsetAPI_MakeThickSolid>,
+            shape: &TopoDS_Shape,
+            offset: f64,
+        ) -> Result<()>;
+        pub fn MakeOffset(self: &BRepOffsetAPI_MakeThickSolid) -> &BRepOffset_MakeOffset;
         pub fn Shape(self: Pin<&mut BRepOffsetAPI_MakeThickSolid>) -> &TopoDS_Shape;
         pub fn Build(
             self: Pin<&mut BRepOffsetAPI_MakeThickSolid>,
             progress: &Message_ProgressRange,
         );
         pub fn IsDone(self: &BRepOffsetAPI_MakeThickSolid) -> bool;
+
+        type BRepOffset_MakeOffset;
+        type BRepOffset_Mode;
+        type BRepOffset_Error;
+
+        pub fn Error(self: &BRepOffset_MakeOffset) -> BRepOffset_Error;
+
+        // Draft angles
+        type BRepOffsetAPI_DraftAngle;
+        type Draft_ErrorStatus;
+
+        #[cxx_name = "construct_unique"]
+        pub fn BRepOffsetAPI_DraftAngle_ctor(
+            shape: &TopoDS_Shape,
+        ) -> UniquePtr<BRepOffsetAPI_DraftAngle>;
+
+        pub fn Add(
+            self: Pin<&mut BRepOffsetAPI_DraftAngle>,
+            face: &TopoDS_Face,
+            direction: &gp_Dir,
+            angle: f64,
+            neutral_plane: &gp_Pln,
+            flag: bool,
+        ) -> Result<()>;
+        pub fn AddDone(self: &BRepOffsetAPI_DraftAngle) -> bool;
+        pub fn ProblematicShape(self: &BRepOffsetAPI_DraftAngle) -> &TopoDS_Shape;
+        pub fn Status(self: &BRepOffsetAPI_DraftAngle) -> Draft_ErrorStatus;
+        pub fn Shape(self: Pin<&mut BRepOffsetAPI_DraftAngle>) -> &TopoDS_Shape;
+        pub fn Build(
+            self: Pin<&mut BRepOffsetAPI_DraftAngle>,
+            progress: &Message_ProgressRange,
+        ) -> Result<()>;
+        pub fn IsDone(self: &BRepOffsetAPI_DraftAngle) -> bool;
 
         // Sweeps
         type BRepOffsetAPI_MakePipe;
@@ -1151,6 +1238,10 @@ pub mod ffi {
         ) -> UniquePtr<HandleBRepTools_History>;
         pub fn BRepBuilderAPI_GTransform_history(
             op: Pin<&mut BRepBuilderAPI_GTransform>,
+            inputs: &TopTools_ListOfShape,
+        ) -> UniquePtr<HandleBRepTools_History>;
+        pub fn BRepOffsetAPI_DraftAngle_history(
+            op: Pin<&mut BRepOffsetAPI_DraftAngle>,
             inputs: &TopTools_ListOfShape,
         ) -> UniquePtr<HandleBRepTools_History>;
 

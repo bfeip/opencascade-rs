@@ -1,6 +1,6 @@
 use glam::dvec3;
 use opencascade::{
-    primitives::{Direction, Shape},
+    primitives::{Direction, JoinType, Shape},
     workplane::Workplane,
     Error,
 };
@@ -20,7 +20,7 @@ pub fn shape() -> Result<Shape, Error> {
 
     let back_face = case_box.faces().farthest(Direction::PosY);
 
-    let case_box = case_box.hollow(case_thickness, [back_face]);
+    let case_box = case_box.hollow(case_thickness, [back_face], JoinType::Arc)?;
 
     let port_cutout = Workplane::xz()
         .sketch()
