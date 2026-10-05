@@ -171,6 +171,8 @@ pub enum OffsetError {
     CannotExtentEdge,
     UserBreak,
     MixedConnectivity,
+    /// Reported as done, but what came out is empty or broken.
+    InvalidResult,
     /// An unspecified failure, or an error code not recognized by this wrapper
     /// (including a spurious "no error").
     Unknown,

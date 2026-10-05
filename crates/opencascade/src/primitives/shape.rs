@@ -1200,7 +1200,8 @@ impl Shape {
     }
 
     /// Hollows the shape into walls `offset` thick, open where
-    /// `faces_to_remove` were.
+    /// `faces_to_remove` were, or closed around an internal void when there
+    /// are none. A closed hollow needs a solid with a single shell.
     ///
     /// A negative `offset` builds the walls inside the surface, a positive one
     /// outside it. `join` shapes the walls where offset faces pull apart.
@@ -1210,9 +1211,13 @@ impl Shape {
         faces_to_remove: impl IntoIterator<Item = T>,
         join: JoinType,
     ) -> Result<Self, Error> {
-        let mut faces_list = ffi::new_list_of_shape();
+        let mut faces_to_remove = faces_to_remove.into_iter().peekable();
+        if faces_to_remove.peek().is_none() {
+            return self.hollow_closed(offset, join);
+        }
 
-        for face in faces_to_remove.into_iter() {
+        let mut faces_list = ffi::new_list_of_shape();
+        for face in faces_to_remove {
             ffi::shape_list_append_face(faces_list.pin_mut(), &face.as_ref().inner);
         }
 
@@ -1221,7 +1226,7 @@ impl Shape {
             &self.inner,
             &faces_list,
             offset,
-            0.001,
+            OFFSET_TOLERANCE,
             ffi::BRepOffset_Mode::BRepOffset_Skin,
             false,
             false,
@@ -1232,28 +1237,72 @@ impl Shape {
         thick_solid_result(solid_maker, built)
     }
 
+    /// Walls `offset` thick around a void, with the shape's own surface as
+    /// their outside for a negative `offset` and as their inside for a
+    /// positive one.
+    fn hollow_closed(&self, offset: f64, join: JoinType) -> Result<Self, Error> {
+        let offset_body = self.offset_surface(offset, join)?;
+        let (outer, inner) = if offset < 0.0 { (self, &offset_body) } else { (&offset_body, self) };
+        // Past the shape's own thickness a curved offset turns inside out into
+        // a smaller one, valid but too close to the outside.
+        if !walls_hold(outer, inner, offset.abs()) {
+            return Err(Error::OffsetFailed(OffsetError::InvalidResult));
+        }
+        let outer = only_shell(outer)?;
+        let mut inner = only_shell(inner)?;
+        // Inside out, the inner shell faces into the void.
+        inner.inner.pin_mut().Reverse();
+
+        let mut make_solid = ffi::BRepBuilderAPI_MakeSolid_ctor(ffi::TopoDS_cast_to_shell(&outer.inner));
+        make_solid.pin_mut().Add(ffi::TopoDS_cast_to_shell(&inner.inner));
+        if !make_solid.IsDone() {
+            return Err(Error::OffsetFailed(OffsetError::Unknown));
+        }
+        offset_result(Self::from_shape(make_solid.pin_mut().Shape()))
+    }
+
     /// Offsets the whole surface of the shape by `offset`, growing or
-    /// shrinking it.
+    /// shrinking it. A solid stays a solid; a face or open shell becomes a
+    /// shell.
     pub fn offset_surface(&self, offset: f64, join: JoinType) -> Result<Self, Error> {
-        let faces_to_remove: [Face; 0] = [];
-        self.hollow(offset, faces_to_remove, join)
+        self.offset_by_join(offset, join, false)
     }
 
     /// Thickens a face or open shell into a solid `offset` thick, grown along
-    /// its normals — or against them, for a negative `offset`
-    /// (`BRepOffsetAPI_MakeThickSolid::MakeThickSolidBySimple`).
-    pub fn thicken(&self, offset: f64) -> Result<Self, Error> {
-        let mut solid_maker = ffi::BRepOffsetAPI_MakeThickSolid_ctor();
-        let built = solid_maker.pin_mut().MakeThickSolidBySimple(&self.inner, offset);
-        let thickened = thick_solid_result(solid_maker, built)?;
+    /// its normals — or against them, for a negative `offset`. `join` shapes
+    /// the solid where offset faces pull apart.
+    pub fn thicken(&self, offset: f64, join: JoinType) -> Result<Self, Error> {
+        let thickened = self.offset_by_join(offset, join, true)?;
+        // A slab that fails to close comes back as a shell or compound.
+        if thickened.shape_type() != ShapeType::Solid {
+            return Err(Error::OffsetFailed(OffsetError::InvalidResult));
+        }
+        Ok(thickened)
+    }
 
-        // The simple algorithm wraps its shell in a solid as it comes, which is
-        // inside out whenever the offset runs along the sheet's normal.
-        let mut solid = ffi::TopoDS_Solid_to_owned(ffi::TopoDS_cast_to_solid(&thickened.inner));
-        if !ffi::BRepLibOrientClosedSolid(solid.pin_mut()) {
+    /// The shape's surface offset by `offset`, or with `thickening`, the solid
+    /// between the surface and that offset (`BRepOffset_MakeOffset`).
+    fn offset_by_join(&self, offset: f64, join: JoinType, thickening: bool) -> Result<Self, Error> {
+        let mut make_offset = ffi::BRepOffset_MakeOffset_ctor();
+        make_offset.pin_mut().Initialize(
+            &self.inner,
+            offset,
+            OFFSET_TOLERANCE,
+            ffi::BRepOffset_Mode::BRepOffset_Skin,
+            false,
+            false,
+            join.into(),
+            thickening,
+            false,
+        );
+        // A throw leaves the error code unset.
+        if make_offset.pin_mut().MakeOffsetShape(&ffi::Message_ProgressRange_ctor()).is_err() {
             return Err(Error::OffsetFailed(OffsetError::Unknown));
         }
-        Ok(Self::from_shape(ffi::cast_solid_to_shape(&solid)))
+        if !make_offset.IsDone() {
+            return Err(Error::OffsetFailed(make_offset.Error().into()));
+        }
+        offset_result(Self::from_shape(make_offset.Shape()))
     }
 
     /// Tapers `faces` by `angle` radians, tilting each about the line where it
@@ -1398,10 +1447,33 @@ fn valid_result(shape: Shape) -> Result<Shape, Error> {
     }
 }
 
+/// Coincidence tolerance of the offset algorithms. An offset no larger than
+/// this is null.
+const OFFSET_TOLERANCE: f64 = 0.001;
+
+/// Whether `outer` keeps at least `thickness` away from `void`, measured from
+/// the middle of each of the void's faces along its outward normal.
+fn walls_hold(outer: &Shape, void: &Shape, thickness: f64) -> bool {
+    void.faces().all(|face| {
+        let middle = face.midpoint();
+        let Ok(normal) = face.normal_at(middle) else { return true };
+        outer
+            .faces_along_line(middle, normal.normalize())
+            .iter()
+            .all(|hit| hit.t <= 0.0 || hit.t >= thickness - OFFSET_TOLERANCE)
+    })
+}
+
+/// The one shell bounding `solid`, or an error for anything else.
+fn only_shell(solid: &Shape) -> Result<Shape, Error> {
+    let mut shells = solid.sub_shapes();
+    match (solid.shape_type(), shells.next(), shells.next()) {
+        (ShapeType::Solid, Some(shell), None) if shell.shape_type() == ShapeType::Shell => Ok(shell),
+        _ => Err(Error::OffsetFailed(OffsetError::Unknown)),
+    }
+}
+
 /// The solid a thick-solid build produced, or why it failed.
-///
-/// Only the join algorithm reports a reason; a failed simple thickening
-/// surfaces as [`OffsetError::Unknown`](crate::OffsetError::Unknown).
 fn thick_solid_result(
     mut solid_maker: UniquePtr<ffi::BRepOffsetAPI_MakeThickSolid>,
     built: Result<(), cxx::Exception>,
@@ -1409,7 +1481,19 @@ fn thick_solid_result(
     if built.is_err() || !solid_maker.IsDone() {
         return Err(Error::OffsetFailed(solid_maker.MakeOffset().Error().into()));
     }
-    Ok(Shape::from_shape(solid_maker.pin_mut().Shape()))
+    offset_result(Shape::from_shape(solid_maker.pin_mut().Shape()))
+}
+
+/// A finished offset, unless it is broken: OCCT reports offsets past a shape's
+/// own thickness as done, with nothing, a collapsed solid or invalid topology.
+fn offset_result(shape: Shape) -> Result<Shape, Error> {
+    let broken = shape.is_null()
+        || !shape.is_valid()
+        || (shape.contains_type(ShapeType::Solid) && shape.volume() <= 0.0);
+    match broken {
+        true => Err(Error::OffsetFailed(OffsetError::InvalidResult)),
+        false => Ok(shape),
+    }
 }
 
 /// Whether `mat` is affine (bottom row `0 0 0 1`) with a 3x3 part that is a
@@ -1470,10 +1554,10 @@ impl ChamferMaker {
 #[cfg(test)]
 mod tests {
     use super::Shape;
-    use crate::primitives::{Compound, Edge, Face, JoinType, ShapeType, Wire};
+    use crate::primitives::{Compound, Edge, Face, JoinType, ShapeType, Shell, Wire};
     use crate::workplane::Workplane;
     use crate::{DraftError, Error, FilletError, OffsetError};
-    use glam::dvec3;
+    use glam::{dvec3, DVec3};
 
     fn max_y(shape: &Shape) -> f64 {
         shape
@@ -2363,16 +2447,137 @@ mod tests {
         );
     }
 
-    /// Grown to either side of the sheet, the slab is a proper solid: OCCT's
-    /// simple thickening leaves one of the two inside out.
+    /// Hollowed with no faces removed, a cube is one solid of two shells: the
+    /// walls inside its faces for a negative offset, outside them for a
+    /// positive one.
+    #[test]
+    fn hollowing_without_removing_faces_leaves_a_void() {
+        let cube = Shape::cube(2.0);
+        for (offset, expected) in [(-0.25, 8.0 - 1.5f64.powi(3)), (0.25, 2.5f64.powi(3) - 8.0)] {
+            let hollow = cube.hollow(offset, [] as [Face; 0], JoinType::Intersection).unwrap();
+            assert_eq!(hollow.shape_type(), ShapeType::Solid);
+            assert_eq!(hollow.sub_shapes().count(), 2, "offset {offset}: an outer and an inner shell");
+            assert!((hollow.volume() - expected).abs() < 1e-6, "offset {offset}: got {}", hollow.volume());
+        }
+    }
+
+    /// Offset either way, a cube grows or shrinks with sharp corners and stays
+    /// a solid with its material inside.
+    #[test]
+    fn offsetting_a_cube_grows_or_shrinks_it() {
+        let cube = Shape::cube(2.0);
+        for (offset, expected) in [(0.5, 27.0), (-0.5, 1.0)] {
+            let offset_cube = cube.offset_surface(offset, JoinType::Intersection).unwrap();
+            assert_eq!(offset_cube.shape_type(), ShapeType::Solid);
+            assert!((offset_cube.volume() - expected).abs() < 1e-6, "offset {offset}: got {}", offset_cube.volume());
+        }
+    }
+
+    #[test]
+    fn offsetting_a_sheet_moves_it_along_its_normal() {
+        let sheet: Shape = Workplane::xy().rect(2.0, 3.0).to_face().unwrap().into();
+        let normal = sheet.faces().next().unwrap().normal_at_center().unwrap().normalize();
+
+        let moved = sheet.offset_surface(0.5, JoinType::Intersection).unwrap();
+        assert_eq!(moved.shape_type(), ShapeType::Shell);
+        let face = moved.faces().next().unwrap();
+        assert!((face.center_of_mass() - normal * 0.5).length() < 1e-6, "got {}", face.center_of_mass());
+        assert!((face.surface_area() - 6.0).abs() < 1e-6);
+    }
+
+    /// Grown to either side of the sheet, the slab is a solid with its
+    /// material inside.
     #[test]
     fn thickening_a_sheet_makes_a_slab_either_way() {
         let sheet: Shape = Workplane::xy().rect(2.0, 3.0).to_face().unwrap().into();
         for offset in [0.5, -0.5] {
-            let slab = sheet.thicken(offset).unwrap();
+            let slab = sheet.thicken(offset, JoinType::Intersection).unwrap();
             assert_eq!(slab.shape_type(), ShapeType::Solid);
             assert!((slab.volume() - 3.0).abs() < 1e-6, "offset {offset}: got {}", slab.volume());
         }
+    }
+
+    /// The face of `shape` whose outward normal at its centre is `normal`.
+    fn face_along(shape: &Shape, normal: DVec3) -> Face {
+        shape
+            .faces()
+            .find(|face| face.normal_at_center().is_ok_and(|n| n.normalize().distance(normal) < 1e-9))
+            .expect("a face matches")
+    }
+
+    /// A face of a solid thickens out of the material for a positive offset,
+    /// whichever way the solid orients it.
+    #[test]
+    fn a_face_of_a_solid_thickens_out_of_the_material() {
+        let cube = Shape::box_centered(2.0, 2.0, 2.0);
+        for (index, face) in cube.faces().enumerate() {
+            let outward = face.normal_at_center().unwrap().normalize();
+            let slab = Shape::from(&face).thicken(0.5, JoinType::Intersection).unwrap();
+            let aabb = crate::bounding_box::aabb(&slab);
+            let centre = (aabb.min() + aabb.max()) * 0.5;
+            assert!((centre.dot(outward) - 1.25).abs() < 1e-6, "face {index}: centre {centre}");
+            assert!((slab.volume() - 2.0).abs() < 1e-6, "face {index}: got {}", slab.volume());
+        }
+    }
+
+    /// Faces meeting at an edge thicken as one slab, joined across the corner.
+    #[test]
+    fn faces_meeting_at_an_edge_thicken_into_one_slab() {
+        let cube = Shape::box_centered(2.0, 2.0, 2.0);
+        let corner = Shell::from_faces([face_along(&cube, DVec3::Y), face_along(&cube, DVec3::X)]);
+
+        let slab = Shape::from(corner).thicken(0.5, JoinType::Intersection).unwrap();
+        // A 2×2×0.5 slab on each face, and the 2×0.5×0.5 block between them.
+        assert!((slab.volume() - 4.5).abs() < 1e-6, "got {}", slab.volume());
+    }
+
+    /// Past a shape's own thickness, OCCT reports offsets as done with nothing,
+    /// a collapsed solid or broken topology. Each is an error, never a shape
+    /// to crash on.
+    #[test]
+    fn offsets_past_the_shapes_own_thickness_are_errors() {
+        let cube = Shape::box_centered(2.0, 2.0, 2.0);
+        let cylinder = Shape::cylinder_centered(DVec3::ZERO, 1.0, DVec3::Y, 4.0);
+        let sphere = Shape::sphere(1.0).build();
+        let none = || [] as [Face; 0];
+        let cases = [
+            ("a cube collapsed to a point", cube.offset_surface(-1.0, JoinType::Intersection)),
+            ("a cube turned inside out", cube.offset_surface(-1.1, JoinType::Intersection)),
+            ("a box past its thinnest side", Shape::box_centered(2.0, 3.0, 5.0).offset_surface(-1.4, JoinType::Intersection)),
+            ("a plate collapsed to a sheet", Shape::box_centered(4.0, 2.0, 4.0).offset_surface(-1.0, JoinType::Intersection)),
+            ("a sphere collapsed to a point", sphere.offset_surface(-1.0, JoinType::Intersection)),
+            ("a cylinder collapsed to its axis", cylinder.offset_surface(-1.0, JoinType::Intersection)),
+            ("cup walls meeting", cube.hollow(-1.0, [face_along(&cube, DVec3::Y)], JoinType::Intersection)),
+            ("closed walls meeting", cube.hollow(-1.0, none(), JoinType::Intersection)),
+            ("closed walls past the middle", cube.hollow(-1.5, none(), JoinType::Intersection)),
+            ("closed walls past a cylinder's axis", cylinder.hollow(-1.2, none(), JoinType::Intersection)),
+            ("closed walls past a sphere's centre", sphere.hollow(-1.2, none(), JoinType::Intersection)),
+        ];
+        for (case, result) in cases {
+            assert!(matches!(result, Err(Error::OffsetFailed(_))), "{case}: got {:?}", result.map(|shape| shape.volume()));
+        }
+    }
+
+    /// Closed walls short of meeting still build, however close they come.
+    #[test]
+    fn closed_walls_short_of_meeting_build() {
+        let sphere = Shape::sphere(1.0).build();
+        let hollow = sphere.hollow(-0.9, [] as [Face; 0], JoinType::Intersection).unwrap();
+        let expected = 4.0 / 3.0 * std::f64::consts::PI * (1.0 - 0.1f64.powi(3));
+        assert!((hollow.volume() - expected).abs() < 1e-4, "got {}", hollow.volume());
+    }
+
+    #[test]
+    fn faces_that_do_not_touch_cannot_thicken_together() {
+        let cube = Shape::box_centered(2.0, 2.0, 2.0);
+        let apart = Shell::from_faces([face_along(&cube, DVec3::Y), face_along(&cube, DVec3::NEG_Y)]);
+
+        let result = Shape::from(apart).thicken(0.5, JoinType::Intersection);
+        assert!(
+            matches!(result, Err(Error::OffsetFailed(OffsetError::NotConnectedShell))),
+            "got {:?}",
+            result.err()
+        );
     }
 
     /// Rounded to radius r, an edge of the 2³ cube loses a groove of r² less a

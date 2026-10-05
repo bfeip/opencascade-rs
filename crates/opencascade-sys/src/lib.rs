@@ -650,6 +650,7 @@ pub mod ffi {
         type TopAbs_Orientation;
         pub fn Orientation(self: &TopoDS_Shape) -> TopAbs_Orientation;
         pub fn Orientation(self: &TopoDS_Face) -> TopAbs_Orientation;
+        pub fn Reverse(self: Pin<&mut TopoDS_Shape>);
 
         // Compound Shapes
         type TopoDS_Compound;
@@ -1079,6 +1080,27 @@ pub mod ffi {
         type BRepOffset_Mode;
         type BRepOffset_Error;
 
+        #[cxx_name = "construct_unique"]
+        pub fn BRepOffset_MakeOffset_ctor() -> UniquePtr<BRepOffset_MakeOffset>;
+
+        pub fn Initialize(
+            self: Pin<&mut BRepOffset_MakeOffset>,
+            shape: &TopoDS_Shape,
+            offset: f64,
+            tolerance: f64,
+            mode: BRepOffset_Mode,
+            intersection: bool,
+            self_intersection: bool,
+            join: GeomAbs_JoinType,
+            thickening: bool,
+            remove_internal_edges: bool,
+        );
+        pub fn MakeOffsetShape(
+            self: Pin<&mut BRepOffset_MakeOffset>,
+            progress: &Message_ProgressRange,
+        ) -> Result<()>;
+        pub fn IsDone(self: &BRepOffset_MakeOffset) -> bool;
+        pub fn Shape(self: &BRepOffset_MakeOffset) -> &TopoDS_Shape;
         pub fn Error(self: &BRepOffset_MakeOffset) -> BRepOffset_Error;
 
         // Draft angles
@@ -1489,6 +1511,8 @@ pub mod ffi {
         pub fn BRepBuilderAPI_MakeSolid_ctor(
             shell: &TopoDS_Shell,
         ) -> UniquePtr<BRepBuilderAPI_MakeSolid>;
+
+        pub fn Add(self: Pin<&mut BRepBuilderAPI_MakeSolid>, shell: &TopoDS_Shell);
 
         pub fn Shape(self: Pin<&mut BRepBuilderAPI_MakeSolid>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepBuilderAPI_MakeSolid>, progress: &Message_ProgressRange);
