@@ -333,6 +333,21 @@ impl Face {
         Ok(dvec3(normal.X(), normal.Y(), normal.Z()))
     }
 
+    /// The point halfway through the face's parameter ranges. Unlike the
+    /// centre of mass, it lies on the surface, curved or closed (though it may
+    /// fall in a hole or notch of a trimmed face).
+    pub fn midpoint(&self) -> DVec3 {
+        let face = ffi::BRepGProp_Face_ctor(&self.inner);
+        let (mut u1, mut u2, mut v1, mut v2) = (0.0, 0.0, 0.0, 0.0);
+        face.Bounds(&mut u1, &mut u2, &mut v1, &mut v2);
+
+        let mut point = ffi::new_point(0.0, 0.0, 0.0);
+        let mut normal = ffi::new_vec(0.0, 1.0, 0.0);
+        face.Normal(0.5 * (u1 + u2), 0.5 * (v1 + v2), point.pin_mut(), normal.pin_mut());
+
+        dvec3(point.X(), point.Y(), point.Z())
+    }
+
     pub fn normal_at_center(&self) -> Result<DVec3, Error> {
         let center = self.center_of_mass();
         self.normal_at(center)
@@ -631,6 +646,22 @@ mod tests {
         let face = torus.faces().next().unwrap();
         let (major, minor) = face.torus_radii().unwrap();
         assert!((major - 20.0).abs() < 1e-9 && (minor - 10.0).abs() < 1e-9);
+    }
+
+    /// A full cylinder's centre of mass sits on its axis, off the surface; its
+    /// midpoint lies on the surface, halfway up, where the normal is defined.
+    #[test]
+    fn a_face_midpoint_lies_on_the_surface() {
+        let cylinder = Shape::cylinder_radius_height(5.0, 3.0);
+        let side = cylinder.faces().find(|f| f.face_type() == FaceType::Cylinder).unwrap();
+        let middle = side.midpoint();
+        assert!((middle.truncate().length() - 5.0).abs() < 1e-9, "{middle}");
+        assert!((middle.z - 1.5).abs() < 1e-9, "{middle}");
+        let normal = side.normal_at(middle).unwrap().normalize();
+        assert!((normal - middle.truncate().extend(0.0) / 5.0).length() < 1e-9, "{normal}");
+
+        let rect = Workplane::xy().rect(7.0, 5.0).to_face().unwrap();
+        assert!(rect.midpoint().distance(rect.center_of_mass()) < 1e-9);
     }
 
     #[test]

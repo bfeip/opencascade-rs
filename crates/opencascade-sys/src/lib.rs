@@ -2048,6 +2048,7 @@ pub mod ffi {
             point: Pin<&mut gp_Pnt>,
             normal: Pin<&mut gp_Vec>,
         );
+        pub fn Bounds(self: &BRepGProp_Face, u1: &mut f64, u2: &mut f64, v1: &mut f64, v2: &mut f64);
 
         // BRepTools
         pub fn outer_wire(face: &TopoDS_Face) -> UniquePtr<TopoDS_Wire>;
