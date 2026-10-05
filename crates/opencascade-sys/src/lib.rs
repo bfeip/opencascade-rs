@@ -87,6 +87,22 @@ pub mod ffi {
         GeomAbs_OtherCurve,
     }
 
+    #[derive(Debug)]
+    #[repr(u32)]
+    pub enum GeomAbs_SurfaceType {
+        GeomAbs_Plane,
+        GeomAbs_Cylinder,
+        GeomAbs_Cone,
+        GeomAbs_Sphere,
+        GeomAbs_Torus,
+        GeomAbs_BezierSurface,
+        GeomAbs_BSplineSurface,
+        GeomAbs_SurfaceOfRevolution,
+        GeomAbs_SurfaceOfExtrusion,
+        GeomAbs_OffsetSurface,
+        GeomAbs_OtherSurface,
+    }
+
     #[repr(u32)]
     #[derive(Debug)]
     pub enum GeomAbs_JoinType {
@@ -498,6 +514,9 @@ pub mod ffi {
         // Edge types
         type GeomAbs_CurveType;
 
+        // Face types
+        type GeomAbs_SurfaceType;
+
         // Segments
         type GC_MakeSegment;
         type GCE2d_MakeSegment;
@@ -536,6 +555,26 @@ pub mod ffi {
 
         #[cxx_name = "construct_unique"]
         pub fn gp_Circ_ctor(axis: &gp_Ax2, radius: f64) -> UniquePtr<gp_Circ>;
+        pub fn Radius(self: &gp_Circ) -> f64;
+
+        // Analytic curves and surfaces
+        type gp_Elips;
+        pub fn MajorRadius(self: &gp_Elips) -> f64;
+        pub fn MinorRadius(self: &gp_Elips) -> f64;
+
+        type gp_Cylinder;
+        pub fn Radius(self: &gp_Cylinder) -> f64;
+
+        type gp_Cone;
+        pub fn RefRadius(self: &gp_Cone) -> f64;
+        pub fn SemiAngle(self: &gp_Cone) -> f64;
+
+        type gp_Sphere;
+        pub fn Radius(self: &gp_Sphere) -> f64;
+
+        type gp_Torus;
+        pub fn MajorRadius(self: &gp_Torus) -> f64;
+        pub fn MinorRadius(self: &gp_Torus) -> f64;
 
         // Shapes
         type TopoDS_Vertex;
@@ -732,6 +771,21 @@ pub mod ffi {
         pub fn LastParameter(self: &BRepAdaptor_Curve) -> f64;
         pub fn BRepAdaptor_Curve_value(curve: &BRepAdaptor_Curve, u: f64) -> UniquePtr<gp_Pnt>;
         pub fn GetType(self: &BRepAdaptor_Curve) -> GeomAbs_CurveType;
+        pub fn BRepAdaptor_Curve_Circle(curve: &BRepAdaptor_Curve) -> UniquePtr<gp_Circ>;
+        pub fn BRepAdaptor_Curve_Ellipse(curve: &BRepAdaptor_Curve) -> UniquePtr<gp_Elips>;
+
+        type BRepAdaptor_Surface;
+
+        #[cxx_name = "construct_unique"]
+        pub fn BRepAdaptor_Surface_ctor(
+            face: &TopoDS_Face,
+            restriction: bool,
+        ) -> UniquePtr<BRepAdaptor_Surface>;
+        pub fn GetType(self: &BRepAdaptor_Surface) -> GeomAbs_SurfaceType;
+        pub fn BRepAdaptor_Surface_Cylinder(surface: &BRepAdaptor_Surface) -> UniquePtr<gp_Cylinder>;
+        pub fn BRepAdaptor_Surface_Cone(surface: &BRepAdaptor_Surface) -> UniquePtr<gp_Cone>;
+        pub fn BRepAdaptor_Surface_Sphere(surface: &BRepAdaptor_Surface) -> UniquePtr<gp_Sphere>;
+        pub fn BRepAdaptor_Surface_Torus(surface: &BRepAdaptor_Surface) -> UniquePtr<gp_Torus>;
 
         // Primitives
         type BRepPrimAPI_MakePrism;

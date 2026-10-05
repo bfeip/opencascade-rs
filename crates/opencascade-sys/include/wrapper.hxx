@@ -4,6 +4,7 @@
 #include <BOPAlgo_MakerVolume.hxx>
 #include <BOPAlgo_PaveFiller.hxx>
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -59,6 +60,7 @@
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <GeomAbs_CurveType.hxx>
 #include <GeomAbs_JoinType.hxx>
+#include <GeomAbs_SurfaceType.hxx>
 #include <Geom_BezierCurve.hxx>
 #include <Geom_BezierSurface.hxx>
 #include <Geom_CylindricalSurface.hxx>
@@ -122,8 +124,13 @@
 #include <gp_Ax2.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Circ.hxx>
+#include <gp_Cone.hxx>
+#include <gp_Cylinder.hxx>
+#include <gp_Elips.hxx>
 #include <gp_Lin.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Sphere.hxx>
+#include <gp_Torus.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
@@ -288,6 +295,31 @@ inline std::unique_ptr<HandleGeomTrimmedCurve> GC_MakeArcOfCircle_Value(const GC
 
 inline std::unique_ptr<gp_Pnt> BRepAdaptor_Curve_value(const BRepAdaptor_Curve &curve, const Standard_Real U) {
   return std::unique_ptr<gp_Pnt>(new gp_Pnt(curve.Value(U)));
+}
+
+inline std::unique_ptr<gp_Circ> BRepAdaptor_Curve_Circle(const BRepAdaptor_Curve &curve) {
+  return std::unique_ptr<gp_Circ>(new gp_Circ(curve.Circle()));
+}
+
+inline std::unique_ptr<gp_Elips> BRepAdaptor_Curve_Ellipse(const BRepAdaptor_Curve &curve) {
+  return std::unique_ptr<gp_Elips>(new gp_Elips(curve.Ellipse()));
+}
+
+// BRepAdaptor_Surface
+inline std::unique_ptr<gp_Cylinder> BRepAdaptor_Surface_Cylinder(const BRepAdaptor_Surface &surface) {
+  return std::unique_ptr<gp_Cylinder>(new gp_Cylinder(surface.Cylinder()));
+}
+
+inline std::unique_ptr<gp_Cone> BRepAdaptor_Surface_Cone(const BRepAdaptor_Surface &surface) {
+  return std::unique_ptr<gp_Cone>(new gp_Cone(surface.Cone()));
+}
+
+inline std::unique_ptr<gp_Sphere> BRepAdaptor_Surface_Sphere(const BRepAdaptor_Surface &surface) {
+  return std::unique_ptr<gp_Sphere>(new gp_Sphere(surface.Sphere()));
+}
+
+inline std::unique_ptr<gp_Torus> BRepAdaptor_Surface_Torus(const BRepAdaptor_Surface &surface) {
+  return std::unique_ptr<gp_Torus>(new gp_Torus(surface.Torus()));
 }
 
 // BRepPrimAPI_MakePrism

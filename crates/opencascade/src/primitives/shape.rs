@@ -321,6 +321,13 @@ impl Shape {
         props.Mass()
     }
 
+    /// Total area of the shape's faces (`BRepGProp::SurfaceProperties`).
+    pub fn surface_area(&self) -> f64 {
+        let mut props = ffi::GProp_GProps_ctor();
+        ffi::BRepGProp_SurfaceProperties(&self.inner, props.pin_mut());
+        props.Mass()
+    }
+
     /// Make a shape that models empty space.
     pub fn empty() -> Self {
         // NOTE: It may seem like using `TopoDS_Shape()` directly should work,
@@ -449,6 +456,14 @@ impl Shape {
     /// A shape of type `ty` contains itself.
     pub fn contains_type(&self, ty: ShapeType) -> bool {
         ffi::TopExp_Explorer_ctor(&self.inner, ty.into()).More()
+    }
+
+    /// Number of distinct sub-shapes of type `ty` (`TopExp::MapShapes`). Unlike
+    /// [`edges`](Self::edges) and its siblings, a shared sub-shape counts once.
+    pub fn unique_sub_shape_count(&self, ty: ShapeType) -> usize {
+        let mut map = ffi::new_indexed_map_of_shape();
+        ffi::map_shapes(&self.inner, ty.into(), map.pin_mut());
+        map.Extent() as usize
     }
 
     pub fn fillet_edge(&self, radius: f64, edge: &Edge) -> Result<Self, Error> {
@@ -898,6 +913,11 @@ impl Shape {
     /// The `index`-th edge in `edges()` order.
     pub fn edge_at(&self, index: usize) -> Option<Edge> {
         self.edges().nth(index)
+    }
+
+    /// The `index`-th vertex in `vertices()` order.
+    pub fn vertex_at(&self, index: usize) -> Option<Vertex> {
+        self.vertices().nth(index)
     }
 
     pub fn wires(&self) -> WireIterator {
@@ -1463,6 +1483,25 @@ mod tests {
             .iter()
             .map(|v| v.y)
             .fold(f64::NEG_INFINITY, f64::max)
+    }
+
+    #[test]
+    fn a_cube_measures_its_area_and_distinct_topology() {
+        let cube = Shape::cube(2.0);
+        assert!((cube.surface_area() - 24.0).abs() < 1e-9);
+        assert_eq!(cube.unique_sub_shape_count(ShapeType::Face), 6);
+        assert_eq!(cube.unique_sub_shape_count(ShapeType::Edge), 12);
+        assert_eq!(cube.unique_sub_shape_count(ShapeType::Vertex), 8);
+        assert_eq!(cube.edges().count(), 24, "edges() counts each occurrence");
+    }
+
+    #[test]
+    fn vertex_at_follows_vertices_order() {
+        let cube = Shape::cube(2.0);
+        let count = cube.vertices().count();
+        let last = cube.vertices().last().unwrap().point();
+        assert_eq!(cube.vertex_at(count - 1).unwrap().point(), last);
+        assert!(cube.vertex_at(count).is_none());
     }
 
     #[test]

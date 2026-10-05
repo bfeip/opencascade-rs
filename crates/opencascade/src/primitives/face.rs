@@ -12,6 +12,40 @@ use cxx::UniquePtr;
 use glam::{dvec3, DVec3};
 use opencascade_sys::ffi;
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum FaceType {
+    Plane,
+    Cylinder,
+    Cone,
+    Sphere,
+    Torus,
+    BezierSurface,
+    BSplineSurface,
+    SurfaceOfRevolution,
+    SurfaceOfExtrusion,
+    OffsetSurface,
+    OtherSurface,
+}
+
+impl From<ffi::GeomAbs_SurfaceType> for FaceType {
+    fn from(surface_type: ffi::GeomAbs_SurfaceType) -> Self {
+        match surface_type {
+            ffi::GeomAbs_SurfaceType::GeomAbs_Plane => Self::Plane,
+            ffi::GeomAbs_SurfaceType::GeomAbs_Cylinder => Self::Cylinder,
+            ffi::GeomAbs_SurfaceType::GeomAbs_Cone => Self::Cone,
+            ffi::GeomAbs_SurfaceType::GeomAbs_Sphere => Self::Sphere,
+            ffi::GeomAbs_SurfaceType::GeomAbs_Torus => Self::Torus,
+            ffi::GeomAbs_SurfaceType::GeomAbs_BezierSurface => Self::BezierSurface,
+            ffi::GeomAbs_SurfaceType::GeomAbs_BSplineSurface => Self::BSplineSurface,
+            ffi::GeomAbs_SurfaceType::GeomAbs_SurfaceOfRevolution => Self::SurfaceOfRevolution,
+            ffi::GeomAbs_SurfaceType::GeomAbs_SurfaceOfExtrusion => Self::SurfaceOfExtrusion,
+            ffi::GeomAbs_SurfaceType::GeomAbs_OffsetSurface => Self::OffsetSurface,
+            ffi::GeomAbs_SurfaceType::GeomAbs_OtherSurface => Self::OtherSurface,
+            ffi::GeomAbs_SurfaceType { repr } => panic!("Unexpected surface type: {repr}"),
+        }
+    }
+}
+
 pub struct Face {
     pub(crate) inner: UniquePtr<ffi::TopoDS_Face>,
 }
@@ -376,6 +410,47 @@ impl Face {
         FaceOrientation::from(self.inner.Orientation())
     }
 
+    pub fn face_type(&self) -> FaceType {
+        FaceType::from(self.adaptor().GetType())
+    }
+
+    /// Radius of a cylindrical face.
+    pub fn cylinder_radius(&self) -> Option<f64> {
+        let surface = self.adaptor_of(FaceType::Cylinder)?;
+        Some(ffi::BRepAdaptor_Surface_Cylinder(&surface).Radius())
+    }
+
+    /// Reference radius and semi-angle (radians) of a conical face.
+    pub fn cone_dimensions(&self) -> Option<(f64, f64)> {
+        let surface = self.adaptor_of(FaceType::Cone)?;
+        let cone = ffi::BRepAdaptor_Surface_Cone(&surface);
+        Some((cone.RefRadius(), cone.SemiAngle()))
+    }
+
+    /// Radius of a spherical face.
+    pub fn sphere_radius(&self) -> Option<f64> {
+        let surface = self.adaptor_of(FaceType::Sphere)?;
+        Some(ffi::BRepAdaptor_Surface_Sphere(&surface).Radius())
+    }
+
+    /// Major and minor radii of a toroidal face.
+    pub fn torus_radii(&self) -> Option<(f64, f64)> {
+        let surface = self.adaptor_of(FaceType::Torus)?;
+        let torus = ffi::BRepAdaptor_Surface_Torus(&surface);
+        Some((torus.MajorRadius(), torus.MinorRadius()))
+    }
+
+    fn adaptor(&self) -> UniquePtr<ffi::BRepAdaptor_Surface> {
+        ffi::BRepAdaptor_Surface_ctor(&self.inner, true)
+    }
+
+    /// The face's surface adaptor, if the surface is of type `ty`. The
+    /// adaptor's analytic accessors throw on any other type.
+    fn adaptor_of(&self, ty: FaceType) -> Option<UniquePtr<ffi::BRepAdaptor_Surface>> {
+        let surface = self.adaptor();
+        (FaceType::from(surface.GetType()) == ty).then_some(surface)
+    }
+
     #[must_use]
     pub fn outer_wire(&self) -> Wire {
         let inner = ffi::outer_wire(&self.inner);
@@ -532,6 +607,31 @@ impl From<ffi::TopAbs_Orientation> for FaceOrientation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn analytic_faces_report_their_type_and_dimensions() {
+        let cylinder = Shape::cylinder_radius_height(5.0, 3.0);
+        let side = cylinder.faces().find(|f| f.face_type() == FaceType::Cylinder).unwrap();
+        assert!((side.cylinder_radius().unwrap() - 5.0).abs() < 1e-9);
+        assert_eq!(side.sphere_radius(), None, "a cylinder is not a sphere");
+        assert_eq!(cylinder.faces().filter(|f| f.face_type() == FaceType::Plane).count(), 2);
+
+        let sphere = Shape::sphere(4.0).build();
+        let face = sphere.faces().next().unwrap();
+        assert_eq!(face.face_type(), FaceType::Sphere);
+        assert!((face.sphere_radius().unwrap() - 4.0).abs() < 1e-9);
+
+        let cone = Shape::cone().bottom_radius(2.0).top_radius(1.0).height(1.0).build();
+        let side = cone.faces().find(|f| f.face_type() == FaceType::Cone).unwrap();
+        let (ref_radius, semi_angle) = side.cone_dimensions().unwrap();
+        assert!((ref_radius - 2.0).abs() < 1e-9, "ref radius {ref_radius}");
+        assert!((semi_angle.abs() - std::f64::consts::FRAC_PI_4).abs() < 1e-9, "{semi_angle}");
+
+        let torus = Shape::torus().radius_1(20.0).radius_2(10.0).build();
+        let face = torus.faces().next().unwrap();
+        let (major, minor) = face.torus_radii().unwrap();
+        assert!((major - 20.0).abs() < 1e-9 && (minor - 10.0).abs() < 1e-9);
+    }
 
     #[test]
     fn test_add() {

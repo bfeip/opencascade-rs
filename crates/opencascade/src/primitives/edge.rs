@@ -217,6 +217,33 @@ impl Edge {
         EdgeType::from(curve.GetType())
     }
 
+    /// Arc length (`BRepGProp::LinearProperties`).
+    pub fn length(&self) -> f64 {
+        let mut props = ffi::GProp_GProps_ctor();
+        ffi::BRepGProp_LinearProperties(ffi::cast_edge_to_shape(&self.inner), props.pin_mut());
+        props.Mass()
+    }
+
+    /// Radius of a circular edge.
+    pub fn circle_radius(&self) -> Option<f64> {
+        let curve = self.adaptor_of(EdgeType::Circle)?;
+        Some(ffi::BRepAdaptor_Curve_Circle(&curve).Radius())
+    }
+
+    /// Major and minor radii of an elliptical edge.
+    pub fn ellipse_radii(&self) -> Option<(f64, f64)> {
+        let curve = self.adaptor_of(EdgeType::Ellipse)?;
+        let ellipse = ffi::BRepAdaptor_Curve_Ellipse(&curve);
+        Some((ellipse.MajorRadius(), ellipse.MinorRadius()))
+    }
+
+    /// The edge's curve adaptor, if the curve is of type `ty`. The adaptor's
+    /// analytic accessors throw on any other type.
+    fn adaptor_of(&self, ty: EdgeType) -> Option<UniquePtr<ffi::BRepAdaptor_Curve>> {
+        let curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
+        (EdgeType::from(curve.GetType()) == ty).then_some(curve)
+    }
+
     /// Linearly extrudes this edge along `dir`, producing the swept [`Face`].
     ///
     /// This is the 1D→2D analogue of [`Face::extrude`](crate::primitives::Face::extrude):
@@ -299,6 +326,21 @@ mod tests {
         );
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn a_segment_measures_its_length_and_has_no_radius() {
+        let edge = Edge::segment(DVec3::ZERO, dvec3(3.0, 4.0, 0.0)).unwrap();
+        assert!((edge.length() - 5.0).abs() < 1e-9);
+        assert_eq!(edge.circle_radius(), None);
+    }
+
+    #[test]
+    fn a_circle_reports_its_radius_and_circumference() {
+        let circle = Edge::circle(DVec3::ZERO, DVec3::Z, 2.0).unwrap();
+        assert_eq!(circle.edge_type(), EdgeType::Circle);
+        assert!((circle.circle_radius().unwrap() - 2.0).abs() < 1e-9);
+        assert!((circle.length() - 4.0 * std::f64::consts::PI).abs() < 1e-9);
     }
 
     #[test]
