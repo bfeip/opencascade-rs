@@ -309,6 +309,7 @@ pub mod ffi {
         pub fn new_indexed_map_of_shape() -> UniquePtr<TopTools_IndexedMapOfShape>;
         pub fn Extent(self: &TopTools_IndexedMapOfShape) -> i32;
         pub fn FindKey(self: &TopTools_IndexedMapOfShape, index: i32) -> &TopoDS_Shape;
+        pub fn FindIndex(self: &TopTools_IndexedMapOfShape, shape: &TopoDS_Shape) -> i32;
 
         pub fn map_shapes(
             shape: &TopoDS_Shape,
@@ -771,6 +772,7 @@ pub mod ffi {
         pub fn FirstParameter(self: &BRepAdaptor_Curve) -> f64;
         pub fn LastParameter(self: &BRepAdaptor_Curve) -> f64;
         pub fn BRepAdaptor_Curve_value(curve: &BRepAdaptor_Curve, u: f64) -> UniquePtr<gp_Pnt>;
+        pub fn D1(self: &BRepAdaptor_Curve, u: f64, point: Pin<&mut gp_Pnt>, tangent: Pin<&mut gp_Vec>);
         pub fn GetType(self: &BRepAdaptor_Curve) -> GeomAbs_CurveType;
         pub fn BRepAdaptor_Curve_Circle(curve: &BRepAdaptor_Curve) -> UniquePtr<gp_Circ>;
         pub fn BRepAdaptor_Curve_Ellipse(curve: &BRepAdaptor_Curve) -> UniquePtr<gp_Elips>;

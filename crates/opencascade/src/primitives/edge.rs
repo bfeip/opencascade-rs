@@ -202,6 +202,18 @@ impl Edge {
         dvec3(point.X(), point.Y(), point.Z())
     }
 
+    /// Unit tangent at [`start_point`](Self::start_point), pointing along the edge.
+    pub fn start_tangent(&self) -> DVec3 {
+        let curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
+        tangent_at(&curve, curve.FirstParameter())
+    }
+
+    /// Unit tangent at [`end_point`](Self::end_point), pointing on past the end.
+    pub fn end_tangent(&self) -> DVec3 {
+        let curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
+        tangent_at(&curve, curve.LastParameter())
+    }
+
     pub fn approximation_segments(&self) -> ApproximationSegmentIterator {
         let adaptor_curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
         let approximator = ffi::GCPnts_TangentialDeflection_ctor(&adaptor_curve, 0.1, 0.1);
@@ -262,6 +274,14 @@ impl Edge {
 
         Face::from_face(face)
     }
+}
+
+/// Unit tangent of `curve` at parameter `u`; zero where the derivative vanishes.
+fn tangent_at(curve: &ffi::BRepAdaptor_Curve, u: f64) -> DVec3 {
+    let mut point = ffi::new_point(0.0, 0.0, 0.0);
+    let mut tangent = ffi::new_vec(0.0, 0.0, 0.0);
+    curve.D1(u, point.pin_mut(), tangent.pin_mut());
+    dvec3(tangent.X(), tangent.Y(), tangent.Z()).normalize_or_zero()
 }
 
 pub struct ApproximationSegmentIterator {
@@ -347,6 +367,25 @@ mod tests {
     fn a_segment_midpoint_is_halfway_along_it() {
         let edge = Edge::segment(dvec3(0.0, 0.0, 0.0), dvec3(2.0, 4.0, 6.0)).unwrap();
         assert!((edge.midpoint() - dvec3(1.0, 2.0, 3.0)).length() < 1e-9);
+    }
+
+    #[test]
+    fn a_segment_points_the_same_way_at_both_ends() {
+        let edge = Edge::segment(DVec3::ZERO, dvec3(0.0, 3.0, 4.0)).unwrap();
+        let along = dvec3(0.0, 0.6, 0.8);
+        assert!((edge.start_tangent() - along).length() < 1e-9);
+        assert!((edge.end_tangent() - along).length() < 1e-9);
+    }
+
+    /// A full circle closes on itself: it leaves its start the way it arrives.
+    #[test]
+    fn a_circle_ends_heading_where_it_starts() {
+        let circle = Edge::circle(DVec3::ZERO, DVec3::Z, 2.0).unwrap();
+        let (start, end) = (circle.start_tangent(), circle.end_tangent());
+
+        assert!((start.length() - 1.0).abs() < 1e-9, "the tangent is not a unit vector");
+        assert!(start.dot(circle.start_point()).abs() < 1e-9, "the tangent is not along the circle");
+        assert!((start - end).length() < 1e-9);
     }
 
     /// A full circle starts and ends at one point, so the average of its end
