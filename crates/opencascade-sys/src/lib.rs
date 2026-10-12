@@ -1567,6 +1567,10 @@ pub mod ffi {
 
         pub fn Shape(self: Pin<&mut BRepBuilderAPI_Copy>) -> &TopoDS_Shape;
         pub fn IsDone(self: &BRepBuilderAPI_Copy) -> bool;
+        pub fn BRepBuilderAPI_Copy_ModifiedShape(
+            copy: &BRepBuilderAPI_Copy,
+            shape: &TopoDS_Shape,
+        ) -> UniquePtr<TopoDS_Shape>;
 
         /// Direct-modeling tweak: rigidly transform `faces` (sub-shapes of the
         /// solid `shape`) and re-solve the body around them. Errs when the
@@ -2146,6 +2150,8 @@ unsafe impl Send for ffi::TopoDS_Shell {}
 unsafe impl Send for ffi::TopoDS_Solid {}
 unsafe impl Send for ffi::TopoDS_Compound {}
 unsafe impl Send for ffi::TopoDS_Shape {}
+unsafe impl Send for ffi::TopoDS_Vertex {}
+unsafe impl Send for ffi::TopTools_IndexedMapOfShape {}
 
 unsafe impl Send for ffi::TopExp_Explorer {}
 unsafe impl Send for ffi::TopoDS_Iterator {}

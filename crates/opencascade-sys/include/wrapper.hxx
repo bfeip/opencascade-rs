@@ -332,6 +332,12 @@ inline std::unique_ptr<TopoDS_Shape> BRepPrimAPI_MakePrism_LastShape(BRepPrimAPI
   return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(prism.LastShape()));
 }
 
+// BRepBuilderAPI_Copy
+inline std::unique_ptr<TopoDS_Shape> BRepBuilderAPI_Copy_ModifiedShape(const BRepBuilderAPI_Copy &copy,
+                                                                        const TopoDS_Shape &shape) {
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(copy.ModifiedShape(shape)));
+}
+
 // BRepLib
 inline bool BRepLibBuildCurves3d(const TopoDS_Shape &shape) { return BRepLib::BuildCurves3d(shape); }
 

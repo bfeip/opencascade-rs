@@ -221,6 +221,15 @@ impl Edge {
         ApproximationSegmentIterator { count: 1, approximator }
     }
 
+    /// The edge sampled into a polyline: a straight edge's two endpoints, any
+    /// other curve's approximation.
+    pub fn polyline(&self) -> Vec<DVec3> {
+        match self.edge_type() {
+            EdgeType::Line => vec![self.start_point(), self.end_point()],
+            _ => self.approximation_segments().collect(),
+        }
+    }
+
     pub fn tangent_arc(_p1: DVec3, _tangent: DVec3, _p3: DVec3) {}
 
     pub fn edge_type(&self) -> EdgeType {
