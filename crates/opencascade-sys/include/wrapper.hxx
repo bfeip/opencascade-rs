@@ -51,6 +51,7 @@
 #include <BinTools.hxx>
 #include <Bnd_Box.hxx>
 #include <GCE2d_MakeSegment.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
 #include <GCPnts_TangentialDeflection.hxx>
 #include <GC_MakeArcOfCircle.hxx>
 #include <GC_MakeSegment.hxx>

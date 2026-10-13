@@ -2053,6 +2053,18 @@ pub mod ffi {
             index: i32,
         ) -> UniquePtr<gp_Pnt>;
 
+        // Arc length
+        type GCPnts_AbscissaPoint;
+
+        #[cxx_name = "construct_unique"]
+        pub fn GCPnts_AbscissaPoint_ctor(
+            curve: &BRepAdaptor_Curve,
+            abscissa: f64,
+            u0: f64,
+        ) -> Result<UniquePtr<GCPnts_AbscissaPoint>>;
+        pub fn IsDone(self: &GCPnts_AbscissaPoint) -> bool;
+        pub fn Parameter(self: &GCPnts_AbscissaPoint) -> f64;
+
         // Shape Properties
         type GProp_GProps;
         #[cxx_name = "construct_unique"]

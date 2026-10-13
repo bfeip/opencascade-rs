@@ -202,6 +202,22 @@ impl Edge {
         dvec3(point.X(), point.Y(), point.Z())
     }
 
+    /// The point halfway along the edge's length, and the unit tangent there.
+    /// The same as [`midpoint`](Self::midpoint) on lines and circles; on curves
+    /// parametrized unevenly, such as B-splines, `midpoint` drifts from it.
+    pub fn length_midpoint(&self) -> Result<(DVec3, DVec3), Error> {
+        let curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
+        let abscissa = ffi::GCPnts_AbscissaPoint_ctor(&curve, 0.5 * self.length(), curve.FirstParameter())
+            .map_err(|e| Error::ArcLengthFailed(e.what().to_string()))?;
+        if !abscissa.IsDone() {
+            return Err(Error::ArcLengthFailed("no point at half the length".to_owned()));
+        }
+        let middle = abscissa.Parameter();
+        let point = ffi::BRepAdaptor_Curve_value(&curve, middle);
+
+        Ok((dvec3(point.X(), point.Y(), point.Z()), tangent_at(&curve, middle)))
+    }
+
     /// Unit tangent at [`start_point`](Self::start_point), pointing along the edge.
     pub fn start_tangent(&self) -> DVec3 {
         let curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
@@ -406,5 +422,34 @@ mod tests {
 
         assert!((middle.length() - 1.0).abs() < 1e-9, "the midpoint is off the circle");
         assert!((middle + start).length() < 1e-9, "the midpoint is not across from the start");
+    }
+
+    #[test]
+    fn a_segment_length_midpoint_is_its_midpoint() {
+        let edge = Edge::segment(DVec3::ZERO, dvec3(0.0, 3.0, 4.0)).unwrap();
+        let (middle, tangent) = edge.length_midpoint().unwrap();
+
+        assert!((middle - edge.midpoint()).length() < 1e-9);
+        assert!((tangent - dvec3(0.0, 0.6, 0.8)).length() < 1e-9);
+    }
+
+    #[test]
+    fn a_circle_length_midpoint_is_across_from_its_start() {
+        let circle = Edge::circle(DVec3::ZERO, DVec3::Z, 2.0).unwrap();
+        let (middle, tangent) = circle.length_midpoint().unwrap();
+
+        assert!((middle + circle.start_point()).length() < 1e-9, "the midpoint is not across from the start");
+        assert!((tangent.length() - 1.0).abs() < 1e-9, "the tangent is not a unit vector");
+        assert!(tangent.dot(middle).abs() < 1e-9, "the tangent is not along the circle");
+    }
+
+    #[test]
+    fn a_straight_spline_length_midpoint_is_its_middle() {
+        let points = [DVec3::ZERO, dvec3(1.0, 0.0, 0.0), dvec3(10.0, 0.0, 0.0)];
+        let spline = Edge::spline_from_points(points, None, false).unwrap();
+        let (middle, tangent) = spline.length_midpoint().unwrap();
+
+        assert!((middle - dvec3(5.0, 0.0, 0.0)).length() < 1e-6, "{middle}");
+        assert!((tangent.abs() - DVec3::X).length() < 1e-6, "{tangent}");
     }
 }
