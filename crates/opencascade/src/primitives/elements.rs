@@ -1,7 +1,10 @@
 use cxx::UniquePtr;
 use opencascade_sys::ffi;
 
-use crate::primitives::{Edge, Face, Shape, Vertex, Wire};
+use crate::{
+    primitives::{Edge, Face, Shape, Vertex, Wire},
+    Error,
+};
 
 /// A shape's faces, edges and vertices as a user sees them, numbered.
 ///
@@ -138,6 +141,18 @@ impl ShapeElements {
 
     pub fn vertices(&self) -> &[Vertex] {
         &self.vertices
+    }
+
+    pub fn face(&self, index: usize) -> Result<&Face, Error> {
+        self.faces.get(index).ok_or(Error::NoSuchElement("face", index))
+    }
+
+    pub fn edge(&self, index: usize) -> Result<&EdgeElement, Error> {
+        self.edges.get(index).ok_or(Error::NoSuchElement("edge", index))
+    }
+
+    pub fn vertex(&self, index: usize) -> Result<&Vertex, Error> {
+        self.vertices.get(index).ok_or(Error::NoSuchElement("vertex", index))
     }
 
     /// The shape's seam edges: no elements, but drawn to debug a surface's
@@ -552,6 +567,15 @@ mod tests {
         for element in elements.edges() {
             assert_eq!(element.pieces().len(), 1, "nothing on the notch was split");
         }
+    }
+
+    #[test]
+    fn an_index_past_the_elements_is_an_error() {
+        let elements = ShapeElements::new(&Shape::cube(1.0));
+        assert!(elements.face(5).is_ok());
+        assert!(matches!(elements.face(6), Err(Error::NoSuchElement("face", 6))));
+        assert!(matches!(elements.edge(12), Err(Error::NoSuchElement("edge", 12))));
+        assert!(matches!(elements.vertex(8), Err(Error::NoSuchElement("vertex", 8))));
     }
 
     #[test]

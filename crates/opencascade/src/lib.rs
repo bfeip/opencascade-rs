@@ -59,6 +59,8 @@ pub enum Error {
     OffsetFailed(OffsetError),
     #[error("failed to fillet or chamfer edges: {0:?}")]
     FilletFailed(FilletError),
+    #[error("the shape has no {0} {1}")]
+    NoSuchElement(&'static str, usize),
 }
 
 /// Reason a `BRepBuilderAPI_MakeEdge` failed to produce an edge.
