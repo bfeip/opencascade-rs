@@ -58,9 +58,14 @@ pub fn build_occt(emscripten_toolchain: Option<&Path>) {
         .define("INSTALL_DIR_INCLUDE", INCLUDE_DIR);
 
     if let Some(toolchain) = emscripten_toolchain {
+        // OCCT defines OCC_CONVERT_SIGNALS on every non-MSVC platform, which puts a setjmp
+        // inside each OCC_CATCH_SIGNALS try block. WebAssembly has no signals to convert, and
+        // LLVM 23 miscompiles setjmp inside try under -fwasm-exceptions into an invalid
+        // br_table (llvm/llvm-project#230956). The -U follows OCCT's -D on the command line.
+        let flags = "-fwasm-exceptions -UOCC_CONVERT_SIGNALS";
         cfg.define("CMAKE_TOOLCHAIN_FILE", toolchain)
-            .define("CMAKE_CXX_FLAGS", "-fwasm-exceptions")
-            .define("CMAKE_C_FLAGS", "-fwasm-exceptions");
+            .define("CMAKE_CXX_FLAGS", flags)
+            .define("CMAKE_C_FLAGS", flags);
     }
 
     cfg.profile("Release").out_dir(out_dir).build();
