@@ -121,10 +121,14 @@ fn make_vec(vec: DVec3) -> UniquePtr<ffi::gp_Vec> {
     ffi::new_vec(vec.x, vec.y, vec.z)
 }
 
+/// The directed line through `origin` along `dir`: an axis to revolve or
+/// rotate about.
 fn make_axis_1(origin: DVec3, dir: DVec3) -> UniquePtr<ffi::gp_Ax1> {
     ffi::gp_Ax1_ctor(&make_point(origin), &make_dir(dir))
 }
 
+/// The right-handed frame at `origin` with `dir` as its Z axis, and X and Y
+/// chosen by OCCT: a placement for circles, cylinders and the like.
 pub fn make_axis_2(origin: DVec3, dir: DVec3) -> UniquePtr<ffi::gp_Ax2> {
     ffi::gp_Ax2_ctor(&make_point(origin), &make_dir(dir))
 }

@@ -173,7 +173,8 @@ impl Face {
         let copy = false;
 
         let inner_shape = ffi::cast_face_to_shape(&self.inner);
-        let mut make_solid = ffi::BRepPrimAPI_MakeRevol_ctor(inner_shape, &revol_vec, angle, copy);
+        let mut make_solid = ffi::BRepPrimAPI_MakeRevol_ctor(inner_shape, &revol_vec, angle, copy)
+            .expect("the revolution could not be built");
         let revolved_shape = make_solid.pin_mut().Shape();
         let solid = ffi::TopoDS_cast_to_solid(revolved_shape);
 
@@ -538,7 +539,8 @@ impl CompoundFace {
 
         let inner_shape = ffi::cast_compound_to_shape(&self.inner);
 
-        let mut make_solid = ffi::BRepPrimAPI_MakeRevol_ctor(inner_shape, &revol_axis, angle, copy);
+        let mut make_solid = ffi::BRepPrimAPI_MakeRevol_ctor(inner_shape, &revol_axis, angle, copy)
+            .expect("the revolution could not be built");
         let revolved_shape = make_solid.pin_mut().Shape();
 
         Shape::from_shape(revolved_shape)

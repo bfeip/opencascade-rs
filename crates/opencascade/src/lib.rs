@@ -55,6 +55,8 @@ pub enum Error {
     CleanFailed(String),
     #[error("boolean {0} operation failed: {1}")]
     BooleanFailed(&'static str, String),
+    #[error("failed to revolve shape: {0}")]
+    RevolveFailed(String),
     #[error("failed to apply draft angle: {0:?}")]
     DraftFailed(DraftError),
     #[error("failed to offset shape: {0:?}")]

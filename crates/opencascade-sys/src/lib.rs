@@ -838,7 +838,7 @@ pub mod ffi {
             axis: &gp_Ax1,
             angle: f64,
             copy: bool,
-        ) -> UniquePtr<BRepPrimAPI_MakeRevol>;
+        ) -> Result<UniquePtr<BRepPrimAPI_MakeRevol>>;
 
         pub fn Shape(self: Pin<&mut BRepPrimAPI_MakeRevol>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepPrimAPI_MakeRevol>, progress: &Message_ProgressRange);

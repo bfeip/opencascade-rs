@@ -820,6 +820,27 @@ impl Shape {
         Ok(Self::from_shape(upgrader.Shape()))
     }
 
+    /// Sweeps the shape `angle` radians about the axis through `origin` along
+    /// `axis`, counter-clockwise looking down `axis` (`BRepPrimAPI_MakeRevol`).
+    /// 
+    /// A vertex sweeps into an edge, an edge into a face, a wire into a shell
+    /// and a face into a solid. `angle` must lie in `(0, 2π]`, and no edge may
+    /// cross the axis, though one may lie along it.
+    pub fn revolve(&self, origin: DVec3, axis: DVec3, angle: f64) -> Result<Shape, Error> {
+        // OCCT only checks the angle in debug builds (`Standard_ConstructionError_Raise_if`).
+        if !(angle > ANGULAR_PRECISION && angle <= std::f64::consts::TAU + ANGULAR_PRECISION) {
+            return Err(Error::RevolveFailed(format!("angle {angle} is outside (0, 2π]")));
+        }
+        let axis = make_axis_1(origin, axis);
+        let mut make_revol = ffi::BRepPrimAPI_MakeRevol_ctor(&self.inner, &axis, angle, false)
+            .map_err(|e| Error::RevolveFailed(e.what().to_string()))?;
+        // `CheckValidity` is all that leaves the algorithm not done.
+        if !make_revol.IsDone() {
+            return Err(Error::RevolveFailed("an edge crosses the axis".to_string()));
+        }
+        Ok(Self::from_shape(make_revol.pin_mut().Shape()))
+    }
+
     pub fn set_global_translation(&mut self, translation: DVec3) {
         let mut transform = ffi::new_transform();
         let translation_vec = make_vec(translation);
@@ -1408,6 +1429,9 @@ fn valid_result(shape: Shape) -> Result<Shape, Error> {
 /// Coincidence tolerance of the offset algorithms. An offset no larger than
 /// this is null.
 const OFFSET_TOLERANCE: f64 = 0.001;
+
+/// OCCT's `Precision::Angular()`: angles no larger than this are null.
+const ANGULAR_PRECISION: f64 = 1e-12;
 
 /// Whether `outer` keeps at least `thickness` away from `void`, measured from
 /// the middle of each of the void's faces along its outward normal.
@@ -2635,5 +2659,31 @@ mod tests {
         let edge = other.edges().next().unwrap();
 
         assert!(cube.adjacent_faces(&edge).is_empty());
+    }
+
+    /// A unit square in XY, spun a full turn about its edge on the Y axis.
+    #[test]
+    fn a_square_revolved_about_its_edge_is_a_cylinder() {
+        let wire = Wire::from_ordered_points([
+            dvec3(0.0, 0.0, 0.0),
+            dvec3(1.0, 0.0, 0.0),
+            dvec3(1.0, 1.0, 0.0),
+            dvec3(0.0, 1.0, 0.0),
+        ])
+        .unwrap();
+        let square: Shape = Face::from_wire(&wire).unwrap().into();
+
+        let full = square.revolve(DVec3::ZERO, DVec3::Y, std::f64::consts::TAU).expect("revolves");
+        assert!(full.contains_type(ShapeType::Solid));
+        assert!((full.volume() - std::f64::consts::PI).abs() < 1e-6, "{}", full.volume());
+
+        let quarter = square.revolve(DVec3::ZERO, DVec3::Y, std::f64::consts::FRAC_PI_2).expect("revolves");
+        assert!((quarter.volume() - std::f64::consts::FRAC_PI_4).abs() < 1e-6, "{}", quarter.volume());
+    }
+
+    #[test]
+    fn a_zero_revolution_is_refused() {
+        let edge: Shape = Edge::segment(dvec3(1.0, 0.0, 0.0), dvec3(1.0, 1.0, 0.0)).unwrap().into();
+        assert!(matches!(edge.revolve(DVec3::ZERO, DVec3::Y, 0.0), Err(Error::RevolveFailed(_))));
     }
 }
