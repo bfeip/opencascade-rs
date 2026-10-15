@@ -917,6 +917,32 @@ impl Shape {
         ffi::TopoDS_Shape_IsNull(&self.inner)
     }
 
+    /// Whether the shape is closed: a shell or solid with every edge shared
+    /// by two faces, or a wire whose ends meet (`BRep_Tool::IsClosed`).
+    pub fn is_closed(&self) -> bool {
+        ffi::BRep_Tool_IsClosed_Shape(&self.inner)
+    }
+
+    /// The solid a closed shell bounds, with its faces turned outward.
+    pub fn to_solid(&self) -> Result<Shape, Error> {
+        if self.shape_type() != ShapeType::Shell || !self.is_closed() {
+            return Err(Error::NotAClosedShell);
+        }
+        let mut make_solid = ffi::BRepBuilderAPI_MakeSolid_ctor(ffi::TopoDS_cast_to_shell(&self.inner));
+        if !make_solid.IsDone() {
+            return Err(Error::SolidFailed);
+        }
+        let mut solid = ffi::TopoDS_Solid_to_owned(ffi::TopoDS_cast_to_solid(make_solid.pin_mut().Shape()));
+        if !ffi::BRepLibOrientClosedSolid(solid.pin_mut()) {
+            return Err(Error::SolidFailed);
+        }
+        let solid = Shape::from_shape(ffi::cast_solid_to_shape(&solid));
+        match solid.is_valid() && solid.volume() > 0.0 {
+            true => Ok(solid),
+            false => Err(Error::SolidFailed),
+        }
+    }
+
     /// Iterates the direct children of this shape.
     /// Only meaningful when `shape_type() == ShapeType::Compound`.
     /// This does not recurse — it yields the immediate sub-shapes.

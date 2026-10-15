@@ -1520,6 +1520,30 @@ pub mod ffi {
         pub fn Build(self: Pin<&mut BRepBuilderAPI_MakeSolid>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepBuilderAPI_MakeSolid) -> bool;
 
+        type BRepBuilderAPI_Sewing;
+
+        #[cxx_name = "construct_unique"]
+        pub fn BRepBuilderAPI_Sewing_ctor(
+            tolerance: f64,
+            option1: bool,
+            option2: bool,
+            option3: bool,
+            option4: bool,
+        ) -> UniquePtr<BRepBuilderAPI_Sewing>;
+
+        pub fn Add(self: Pin<&mut BRepBuilderAPI_Sewing>, shape: &TopoDS_Shape);
+        pub fn Perform(
+            self: Pin<&mut BRepBuilderAPI_Sewing>,
+            progress: &Message_ProgressRange,
+        ) -> Result<()>;
+        pub fn SewedShape(self: &BRepBuilderAPI_Sewing) -> &TopoDS_Shape;
+        pub fn NbFreeEdges(self: &BRepBuilderAPI_Sewing) -> i32;
+        pub fn FreeEdge(self: &BRepBuilderAPI_Sewing, index: i32) -> &TopoDS_Edge;
+        pub fn BRepBuilderAPI_Sewing_ModifiedSubShape(
+            sewing: &BRepBuilderAPI_Sewing,
+            shape: &TopoDS_Shape,
+        ) -> UniquePtr<TopoDS_Shape>;
+
         type BRepBuilderAPI_MakeShapeOnMesh;
 
         #[cxx_name = "construct_unique"]
@@ -1632,6 +1656,7 @@ pub mod ffi {
         pub fn BRep_Tool_Pnt(vertex: &TopoDS_Vertex) -> UniquePtr<gp_Pnt>;
         pub fn BRep_Tool_Degenerated(edge: &TopoDS_Edge) -> bool;
         pub fn BRep_Tool_IsClosed(edge: &TopoDS_Edge, face: &TopoDS_Face) -> bool;
+        pub fn BRep_Tool_IsClosed_Shape(shape: &TopoDS_Shape) -> bool;
         pub fn BRep_Tool_Triangulation(
             face: &TopoDS_Face,
             location: Pin<&mut TopLoc_Location>,

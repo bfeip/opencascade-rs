@@ -16,6 +16,7 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeShapeOnMesh.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
+#include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
@@ -339,6 +340,12 @@ inline std::unique_ptr<TopoDS_Shape> BRepBuilderAPI_Copy_ModifiedShape(const BRe
   return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(copy.ModifiedShape(shape)));
 }
 
+// BRepBuilderAPI_Sewing
+inline std::unique_ptr<TopoDS_Shape> BRepBuilderAPI_Sewing_ModifiedSubShape(const BRepBuilderAPI_Sewing &sewing,
+                                                                             const TopoDS_Shape &shape) {
+  return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(sewing.ModifiedSubShape(shape)));
+}
+
 // BRepLib
 inline bool BRepLibBuildCurves3d(const TopoDS_Shape &shape) { return BRepLib::BuildCurves3d(shape); }
 
@@ -444,6 +451,8 @@ inline bool BRep_Tool_Degenerated(const TopoDS_Edge &edge) { return BRep_Tool::D
 inline bool BRep_Tool_IsClosed(const TopoDS_Edge &edge, const TopoDS_Face &face) {
   return BRep_Tool::IsClosed(edge, face);
 }
+
+inline bool BRep_Tool_IsClosed_Shape(const TopoDS_Shape &shape) { return BRep_Tool::IsClosed(shape); }
 
 inline std::unique_ptr<gp_Trsf> TopLoc_Location_Transformation(const TopLoc_Location &location) {
   return std::unique_ptr<gp_Trsf>(new gp_Trsf(location.Transformation()));

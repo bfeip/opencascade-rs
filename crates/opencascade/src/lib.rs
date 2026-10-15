@@ -65,6 +65,12 @@ pub enum Error {
     FilletFailed(FilletError),
     #[error("the shape has no {0} {1}")]
     NoSuchElement(&'static str, usize),
+    #[error("failed to sew faces: {0}")]
+    SewingFailed(String),
+    #[error("the shape is not a closed shell")]
+    NotAClosedShell,
+    #[error("failed to make a solid from the shell")]
+    SolidFailed,
 }
 
 /// Reason a `BRepBuilderAPI_MakeEdge` failed to produce an edge.
