@@ -20,7 +20,7 @@ pub fn shape() -> Result<Shape, Error> {
 
     let back_face = case_box.faces().farthest(Direction::PosY);
 
-    let case_box = case_box.hollow(case_thickness, [back_face], JoinType::Arc)?;
+    let case_box = case_box.hollow(case_thickness, [back_face], JoinType::Arc, 0.001)?;
 
     let port_cutout = Workplane::xz()
         .sketch()

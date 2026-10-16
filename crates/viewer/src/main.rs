@@ -107,7 +107,7 @@ fn get_shape_edges(shape: &Shape, graphics_device: &GraphicsDevice) -> RenderedL
         let mut last_point: Option<DVec3> = None;
         let mut length_so_far = 0.0;
 
-        for point in edge.approximation_segments() {
+        for point in edge.approximation_segments(0.1) {
             if let Some(last_point) = last_point {
                 let point_a_length = length_so_far;
                 length_so_far += (point - last_point).length();

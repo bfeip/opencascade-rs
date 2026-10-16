@@ -36,5 +36,5 @@ pub fn shape() -> Result<Shape, Error> {
     let bottle = neck.union(&body)?;
 
     let top_face = bottle.faces().farthest(PosZ);
-    bottle.hollow(-thickness / 50.0, [top_face], JoinType::Arc)
+    bottle.hollow(-thickness / 50.0, [top_face], JoinType::Arc, 0.001)
 }

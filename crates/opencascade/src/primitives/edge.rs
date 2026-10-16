@@ -230,19 +230,22 @@ impl Edge {
         tangent_at(&curve, curve.LastParameter())
     }
 
-    pub fn approximation_segments(&self) -> ApproximationSegmentIterator {
+    /// Points along the edge, at most 0.1 rad of turn and `deflection` of
+    /// chord sag apart.
+    pub fn approximation_segments(&self, deflection: f64) -> ApproximationSegmentIterator {
         let adaptor_curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
-        let approximator = ffi::GCPnts_TangentialDeflection_ctor(&adaptor_curve, 0.1, 0.1);
+        let approximator = ffi::GCPnts_TangentialDeflection_ctor(&adaptor_curve, 0.1, deflection);
 
         ApproximationSegmentIterator { count: 1, approximator }
     }
 
     /// The edge sampled into a polyline: a straight edge's two endpoints, any
-    /// other curve's approximation.
-    pub fn polyline(&self) -> Vec<DVec3> {
+    /// other curve's [approximation](Self::approximation_segments) within
+    /// `deflection`.
+    pub fn polyline(&self, deflection: f64) -> Vec<DVec3> {
         match self.edge_type() {
             EdgeType::Line => vec![self.start_point(), self.end_point()],
-            _ => self.approximation_segments().collect(),
+            _ => self.approximation_segments(deflection).collect(),
         }
     }
 
@@ -451,5 +454,17 @@ mod tests {
 
         assert!((middle - dvec3(5.0, 0.0, 0.0)).length() < 1e-6, "{middle}");
         assert!((tangent.abs() - DVec3::X).length() < 1e-6, "{tangent}");
+    }
+
+    #[test]
+    fn a_circle_polyline_keeps_within_its_deflection() {
+        let circle = Edge::circle(DVec3::ZERO, DVec3::Z, 1.0).unwrap();
+        let coarse = circle.polyline(0.1);
+        let fine = circle.polyline(1e-4);
+        assert!(fine.len() > coarse.len(), "{} points, coarse {}", fine.len(), coarse.len());
+        for pair in fine.windows(2) {
+            let sag = 1.0 - ((pair[0] + pair[1]) / 2.0).length();
+            assert!(sag <= 1e-4 + 1e-9, "a chord sags {sag}");
+        }
     }
 }

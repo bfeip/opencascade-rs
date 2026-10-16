@@ -1479,7 +1479,8 @@ shape_tweak_faces_with_history(const TopoDS_Shape &shape, const TopTools_ListOfS
         best_volume = volume;
       }
     }
-    if (best_volume <= Precision::Confusion())
+    const Standard_Real confusion = Precision::Confusion();
+    if (best_volume <= confusion * confusion * confusion)
       throw std::runtime_error("tweak: the rebuilt body is degenerate");
 
     // Gate + face history: trace every face of the body into the winning solid

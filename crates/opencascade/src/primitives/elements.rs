@@ -494,7 +494,7 @@ mod tests {
         let rim = &elements.edges()[0];
         let circumference: f64 = rim.pieces().iter().map(Edge::length).sum();
 
-        let points = rim.curve().polyline();
+        let points = rim.curve().polyline(0.1);
         assert!(
             points.first().unwrap().distance(*points.last().unwrap()) < 1e-7,
             "the loop is open"
