@@ -1,4 +1,7 @@
+use std::sync::OnceLock;
+
 use cxx::UniquePtr;
+use glam::DVec3;
 use opencascade_sys::ffi;
 
 use crate::{
@@ -20,6 +23,8 @@ pub struct ShapeElements {
     face_lookup: Lookup,
     edge_lookup: Lookup,
     vertex_lookup: Lookup,
+    /// Per sub-shape slot of `edge_lookup`: the faces that edge bounds.
+    edge_faces: OnceLock<Vec<Vec<usize>>>,
 }
 
 /// An edge as a user sees it: one of the shape's edges, or several where a seam
@@ -176,6 +181,50 @@ impl ShapeElements {
         self.vertex_lookup.get(ffi::cast_vertex_to_shape(&vertex.inner))
     }
 
+    /// The faces `edge` of the shape bounds, by index, each once: two for an
+    /// edge between faces, one for a seam or free edge, none for an edge that
+    /// is not part of the shape.
+    pub fn adjacent_faces(&self, edge: &Edge) -> &[usize] {
+        let edge_faces = self.edge_faces.get_or_init(|| self.map_edge_faces());
+        match self.edge_lookup.slot(ffi::cast_edge_to_shape(&edge.inner)) {
+            Some(slot) => &edge_faces[slot],
+            None => &[],
+        }
+    }
+
+    /// The corner `edge` of the shape makes between the two faces it bounds,
+    /// halfway along it; `None` unless it bounds two.
+    pub fn corner(&self, edge: &Edge) -> Option<EdgeCorner> {
+        let &[a, b] = self.adjacent_faces(edge) else { return None };
+        let (point, tangent) = edge.length_midpoint().ok()?;
+        let normals = [self.faces[a].normal_at(point).ok()?, self.faces[b].normal_at(point).ok()?];
+        let step = edge.length() * EdgeCorner::PROBE;
+        let convex =
+            into_face(&self.faces[a], point, normals[0], tangent, step).map(|into_a| normals[1].dot(into_a) < 0.0);
+        Some(EdgeCorner { point, tangent, faces: [a, b], normals, convex })
+    }
+
+    fn map_edge_faces(&self) -> Vec<Vec<usize>> {
+        let mut ancestors = ffi::new_indexed_data_map_of_shape_list_of_shape();
+        ffi::map_shapes_and_unique_ancestors(
+            &self.shape.inner,
+            ffi::TopAbs_ShapeEnum::TopAbs_EDGE,
+            ffi::TopAbs_ShapeEnum::TopAbs_FACE,
+            ancestors.pin_mut(),
+        );
+        let mut edge_faces = vec![Vec::new(); self.edge_lookup.elements.len()];
+        for index in 1..=ancestors.Extent() {
+            let Some(slot) = self.edge_lookup.slot(ancestors.FindKey(index)) else { continue };
+            for face in ffi::shape_list_to_vector(ancestors.FindFromIndex(index)).iter() {
+                let faces: &mut Vec<usize> = &mut edge_faces[slot];
+                if let Some(face) = self.face_lookup.get(face).filter(|face| !faces.contains(face)) {
+                    faces.push(face);
+                }
+            }
+        }
+        edge_faces
+    }
+
     /// The elements, with lookups from `shape`'s sub-shapes to them.
     fn indexed(
         shape: Shape,
@@ -198,8 +247,63 @@ impl ShapeElements {
         for (index, vertex) in vertices.iter().enumerate() {
             vertex_lookup.set(ffi::cast_vertex_to_shape(&vertex.inner), index);
         }
-        Self { shape, faces, edges, vertices, seams, face_lookup, edge_lookup, vertex_lookup }
+        Self {
+            shape,
+            faces,
+            edges,
+            vertices,
+            seams,
+            face_lookup,
+            edge_lookup,
+            vertex_lookup,
+            edge_faces: OnceLock::new(),
+        }
     }
+}
+
+/// The corner two faces make along an edge between them, at a point on it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EdgeCorner {
+    /// Where on the edge it is measured.
+    pub point: DVec3,
+    /// The edge's unit tangent there.
+    pub tangent: DVec3,
+    /// The two faces, by index.
+    pub faces: [usize; 2],
+    /// The faces' outward normals there.
+    pub normals: [DVec3; 2],
+    /// Whether the material between the faces makes an outside corner;
+    /// `None` where it cannot be told which side of the edge the first face
+    /// lies on.
+    pub convex: Option<bool>,
+}
+
+impl EdgeCorner {
+    /// How far across the edge, as a share of its length, a point is taken to
+    /// find which side of it a face lies on.
+    const PROBE: f64 = 1e-3;
+
+    /// The angle between the faces' outward normals: zero across a flat seam,
+    /// a right angle at a box's edge.
+    pub fn normal_angle(&self) -> f64 {
+        self.normals[0].angle_between(self.normals[1])
+    }
+}
+
+/// The direction from `point`, on an edge running along `tangent`, into
+/// `face`: whichever way across the edge lands on the face a `step` away.
+fn into_face(face: &Face, point: DVec3, normal: DVec3, tangent: DVec3, step: f64) -> Option<DVec3> {
+    /// OCCT's `Precision::Confusion`.
+    const CONFUSION: f64 = 1e-7;
+
+    let across = normal.cross(tangent).normalize();
+    let face = Shape::from(face);
+    [across, -across].into_iter().find(|&direction| {
+        let probe = point + direction * step;
+        face.faces_along_line(probe + normal * step, -normal, CONFUSION)
+            .iter()
+            .any(|hit| hit.point.distance(probe) < step / 2.0)
+    })
 }
 
 /// `pieces`, in order along one curve, as one edge; `None` if they make no single
@@ -618,5 +722,94 @@ mod tests {
         let line = Edge::segment(dvec3(-1.0, 0.0, 0.0), DVec3::ZERO).unwrap();
         let arc = Edge::arc(DVec3::ZERO, dvec3(1.0, 1.0, 0.0), dvec3(0.0, 2.0, 0.0)).unwrap();
         assert!(join(&[line, arc]).is_none());
+    }
+
+    /// The edge of `elements`' shape through `point`.
+    fn edge_at(elements: &ShapeElements, point: DVec3) -> Edge {
+        elements
+            .shape()
+            .edges()
+            .find(|edge| edge.midpoint().distance(point) < 1e-9)
+            .expect("an edge runs through the point")
+    }
+
+    /// The circular edge of `elements`' shape at height `z`.
+    fn circle_at(elements: &ShapeElements, z: f64) -> Edge {
+        elements
+            .shape()
+            .edges()
+            .find(|edge| edge.edge_type() == EdgeType::Circle && (edge.start_point().z - z).abs() < 1e-9)
+            .expect("a circle at that height")
+    }
+
+    #[test]
+    fn adjacent_faces_are_the_faces_an_edge_bounds() {
+        let elements = ShapeElements::new(&Shape::box_centered(2.0, 2.0, 2.0));
+        for edge in elements.shape().edges() {
+            let faces = elements.adjacent_faces(&edge);
+            assert_eq!(faces.len(), 2);
+            for &face in faces {
+                assert!(elements.faces()[face].edges().any(|bounding| bounding.is_same(&edge)));
+            }
+        }
+
+        let cylinder = ShapeElements::new(&Shape::cylinder_radius_height(1.0, 2.0));
+        let [seam] = cylinder.seams() else { panic!("a cylinder has one seam") };
+        assert_eq!(cylinder.adjacent_faces(seam).len(), 1);
+
+        let elsewhere = Edge::segment(DVec3::ZERO, DVec3::X).unwrap();
+        assert!(elements.adjacent_faces(&elsewhere).is_empty());
+    }
+
+    #[test]
+    fn a_box_edge_is_an_outside_right_angle_corner() {
+        let elements = ShapeElements::new(&Shape::box_centered(2.0, 2.0, 2.0));
+        let edge = edge_at(&elements, dvec3(0.0, -1.0, 1.0));
+        let corner = elements.corner(&edge).expect("an edge between two faces");
+
+        assert!(corner.point.distance(dvec3(0.0, -1.0, 1.0)) < 1e-9);
+        assert!((corner.tangent.x.abs() - 1.0).abs() < 1e-12);
+        assert!((corner.normal_angle() - std::f64::consts::FRAC_PI_2).abs() < 1e-12);
+        for (face, normal) in corner.faces.iter().zip(corner.normals) {
+            let expected = elements.faces()[*face].normal_at_center().unwrap();
+            assert!((normal - expected).length() < 1e-12, "the normals are the faces' own, outward");
+        }
+        assert_eq!(corner.convex, Some(true));
+    }
+
+    /// Where a wall stands on a slab, the edge along its foot is an inside
+    /// corner.
+    #[test]
+    fn the_foot_of_a_wall_is_an_inside_corner() {
+        let slab = Shape::box_from_corners(DVec3::ZERO, dvec3(2.0, 2.0, 1.0));
+        let wall = Shape::box_from_corners(dvec3(0.0, 1.0, 1.0), dvec3(2.0, 2.0, 2.0));
+        let step = ShapeElements::new(&slab.union(&wall).unwrap().shape.clean().unwrap());
+        let corner = step.corner(&edge_at(&step, dvec3(1.0, 1.0, 1.0))).expect("an edge between two faces");
+        assert_eq!(corner.convex, Some(false));
+    }
+
+    /// The corner test works across curved faces: a rod's rim, a bore's rim
+    /// and the foot of a boss.
+    #[test]
+    fn curved_corners_tell_outside_from_inside() {
+        let rod = ShapeElements::new(&Shape::cylinder_radius_height(1.0, 2.0));
+        assert_eq!(rod.corner(&circle_at(&rod, 2.0)).and_then(|corner| corner.convex), Some(true));
+
+        let block = Shape::box_from_corners(dvec3(-2.0, -2.0, 0.0), dvec3(2.0, 2.0, 2.0));
+        let bore = Shape::cylinder(dvec3(0.0, 0.0, -1.0), 1.0, DVec3::Z, 4.0);
+        let bored = ShapeElements::new(&block.subtract(&bore).unwrap().shape);
+        assert_eq!(bored.corner(&circle_at(&bored, 2.0)).and_then(|corner| corner.convex), Some(true));
+
+        let boss = Shape::cylinder(dvec3(0.0, 0.0, 2.0), 1.0, DVec3::Z, 1.0);
+        let bossed = ShapeElements::new(&block.union(&boss).unwrap().shape.clean().unwrap());
+        assert_eq!(bossed.corner(&circle_at(&bossed, 2.0)).and_then(|corner| corner.convex), Some(false));
+    }
+
+    #[test]
+    fn a_sheet_edge_has_no_corner() {
+        let sheet: Shape = Face::from_wire(&Wire::rect(2.0, 2.0).unwrap()).unwrap().into();
+        let elements = ShapeElements::new(&sheet);
+        let edge = elements.shape().edges().next().unwrap();
+        assert_eq!(elements.corner(&edge), None);
     }
 }

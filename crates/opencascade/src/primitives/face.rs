@@ -473,6 +473,13 @@ impl Face {
 
         Wire { inner }
     }
+
+    /// The wires bounding holes in the face: all but its
+    /// [outer wire](Self::outer_wire).
+    pub fn inner_wires(&self) -> impl Iterator<Item = Wire> {
+        let outer = self.outer_wire();
+        Shape::from(self).wires().filter(move |wire| !wire.is_same(&outer))
+    }
 }
 
 pub struct CompoundFace {
@@ -689,5 +696,21 @@ mod tests {
         for cap in [&first, &last] {
             assert!(solid.faces().any(|f| f.is_same(cap)), "a cap is not a face of the prism");
         }
+    }
+
+    #[test]
+    fn inner_wires_are_the_holes_through_a_face() {
+        let bore = Shape::cylinder(dvec3(0.0, 0.0, -2.0), 0.5, DVec3::Z, 4.0);
+        let bored = Shape::box_centered(2.0, 2.0, 2.0).subtract(&bore).unwrap().shape;
+        let top = bored
+            .faces()
+            .find(|face| face.normal_at_center().is_ok_and(|n| n.z > 0.9))
+            .expect("the top face");
+        let holes: Vec<Wire> = top.inner_wires().collect();
+        assert_eq!(holes.len(), 1);
+        assert!(!holes[0].is_same(&top.outer_wire()));
+
+        let side = bored.faces().find(|face| face.normal_at_center().is_ok_and(|n| n.x > 0.9)).unwrap();
+        assert_eq!(side.inner_wires().count(), 0);
     }
 }

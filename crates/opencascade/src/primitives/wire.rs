@@ -44,6 +44,12 @@ impl Wire {
         Self { inner }
     }
 
+    /// Topological identity (same underlying TShape and location, ignoring
+    /// orientation) — the `TopoDS_Shape::IsSame` test.
+    pub fn is_same(&self, other: &Wire) -> bool {
+        ffi::cast_wire_to_shape(&self.inner).IsSame(ffi::cast_wire_to_shape(&other.inner))
+    }
+
     /// Iterates the wire's member edges in topological (explorer) order.
     pub fn edges(&self) -> EdgeIterator {
         let explorer = ffi::TopExp_Explorer_ctor(

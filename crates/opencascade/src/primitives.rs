@@ -2,6 +2,7 @@ use cxx::UniquePtr;
 use glam::{DVec2, DVec3};
 use opencascade_sys::ffi;
 
+mod blend;
 mod boolean_shape;
 mod compound;
 mod edge;
