@@ -7,6 +7,7 @@
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepBndLib.hxx>
@@ -1208,6 +1209,11 @@ BRepAlgoAPI_Common_history(const BRepAlgoAPI_Common &op) {
   return std::unique_ptr<HandleBRepTools_History>(new HandleBRepTools_History(op.History()));
 }
 
+inline std::unique_ptr<HandleBRepTools_History>
+BRepAlgoAPI_Defeaturing_history(BRepAlgoAPI_Defeaturing &op) {
+  return std::unique_ptr<HandleBRepTools_History>(new HandleBRepTools_History(op.History()));
+}
+
 // BOPAlgo_Options is a protected base re-exposed via using-declarations;
 // pointer-to-member binding cannot cross it, so these are free functions.
 inline void BRepAlgoAPI_Fuse_set_fuzzy_value(BRepAlgoAPI_Fuse &op, double fuzz) { op.SetFuzzyValue(fuzz); }
@@ -1221,6 +1227,9 @@ inline bool BRepAlgoAPI_Cut_has_errors(const BRepAlgoAPI_Cut &op) { return op.Ha
 inline void BRepAlgoAPI_Common_set_fuzzy_value(BRepAlgoAPI_Common &op, double fuzz) { op.SetFuzzyValue(fuzz); }
 inline bool BRepAlgoAPI_Common_has_warnings(const BRepAlgoAPI_Common &op) { return op.HasWarnings(); }
 inline bool BRepAlgoAPI_Common_has_errors(const BRepAlgoAPI_Common &op) { return op.HasErrors(); }
+
+inline bool BRepAlgoAPI_Defeaturing_has_warnings(const BRepAlgoAPI_Defeaturing &op) { return op.HasWarnings(); }
+inline bool BRepAlgoAPI_Defeaturing_has_errors(const BRepAlgoAPI_Defeaturing &op) { return op.HasErrors(); }
 
 // Warning/error reports of a boolean operation (BOPAlgo_Options::DumpWarnings /
 // DumpErrors adapted from Standard_OStream to a string). Empty when clean.
@@ -1257,6 +1266,12 @@ inline rust::String BRepAlgoAPI_Common_warnings(const BRepAlgoAPI_Common &op) {
 inline rust::String BRepAlgoAPI_Common_errors(const BRepAlgoAPI_Common &op) {
   std::ostringstream stream;
   op.DumpErrors(stream);
+  return rust::String(stream.str());
+}
+
+inline rust::String BRepAlgoAPI_Defeaturing_warnings(const BRepAlgoAPI_Defeaturing &op) {
+  std::ostringstream stream;
+  op.DumpWarnings(stream);
   return rust::String(stream.str());
 }
 

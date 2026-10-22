@@ -1173,6 +1173,43 @@ impl Shape {
         Ok((Compound::from_shapes(rebuilt).into(), history))
     }
 
+    /// Removes features — holes, pockets, bosses, blends — given as their
+    /// faces, closing each gap by extending the faces around it
+    /// (`BRepAlgoAPI_Defeaturing`). Returns the result with its history.
+    ///
+    /// Fails unless every feature comes out: one whose neighbours cannot be
+    /// extended to cover it (tangent neighbours, typically) fails the whole
+    /// removal.
+    pub fn remove_features<T: AsRef<Face>>(
+        &self,
+        faces: impl IntoIterator<Item = T>,
+    ) -> Result<(Shape, ShapeHistory), Error> {
+        let mut defeaturing = ffi::BRepAlgoAPI_Defeaturing_ctor();
+        defeaturing.pin_mut().SetShape(&self.inner);
+        for face in faces {
+            defeaturing.pin_mut().AddFaceToRemove(ffi::cast_face_to_shape(&face.as_ref().inner));
+        }
+
+        let built = defeaturing.pin_mut().Build(&ffi::Message_ProgressRange_ctor());
+        if let Err(error) = built {
+            return Err(Error::RemoveFeaturesFailed(error.what().to_string()));
+        }
+        if !defeaturing.IsDone() || ffi::BRepAlgoAPI_Defeaturing_has_errors(&defeaturing) {
+            return Err(Error::RemoveFeaturesFailed("the removal did not complete".to_string()));
+        }
+        // A feature it could not remove is only a warning to OCCT.
+        if ffi::BRepAlgoAPI_Defeaturing_has_warnings(&defeaturing) {
+            return Err(Error::RemoveFeaturesFailed(ffi::BRepAlgoAPI_Defeaturing_warnings(
+                &defeaturing,
+            )));
+        }
+
+        let history = ShapeHistory::from_handle(ffi::BRepAlgoAPI_Defeaturing_history(
+            defeaturing.pin_mut(),
+        ));
+        Ok((Shape::from_shape(defeaturing.pin_mut().Shape()), history))
+    }
+
     /// The faces the line through `line_origin` along `line_dir` crosses,
     /// intersecting within `tolerance`.
     // TODO(bschwind) - Convert the return type to an iterator.

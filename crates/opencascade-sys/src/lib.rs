@@ -1324,6 +1324,24 @@ pub mod ffi {
             section: UniquePtr<BRepAlgoAPI_Section>,
         ) -> UniquePtr<BRepAlgoAPI_BuilderAlgo>;
 
+        type BRepAlgoAPI_Defeaturing;
+
+        #[cxx_name = "construct_unique"]
+        pub fn BRepAlgoAPI_Defeaturing_ctor() -> UniquePtr<BRepAlgoAPI_Defeaturing>;
+
+        pub fn SetShape(self: Pin<&mut BRepAlgoAPI_Defeaturing>, shape: &TopoDS_Shape);
+        pub fn AddFaceToRemove(self: Pin<&mut BRepAlgoAPI_Defeaturing>, face: &TopoDS_Shape);
+        pub fn SetToFillHistory(self: Pin<&mut BRepAlgoAPI_Defeaturing>, fill: bool);
+        pub fn Build(
+            self: Pin<&mut BRepAlgoAPI_Defeaturing>,
+            progress: &Message_ProgressRange,
+        ) -> Result<()>;
+        pub fn IsDone(self: &BRepAlgoAPI_Defeaturing) -> bool;
+        pub fn Shape(self: Pin<&mut BRepAlgoAPI_Defeaturing>) -> &TopoDS_Shape;
+        pub fn BRepAlgoAPI_Defeaturing_has_warnings(op: &BRepAlgoAPI_Defeaturing) -> bool;
+        pub fn BRepAlgoAPI_Defeaturing_has_errors(op: &BRepAlgoAPI_Defeaturing) -> bool;
+        pub fn BRepAlgoAPI_Defeaturing_warnings(op: &BRepAlgoAPI_Defeaturing) -> String;
+
         // Sub-shape history (BRepTools_History)
         type HandleBRepTools_History;
 
@@ -1351,6 +1369,9 @@ pub mod ffi {
         pub fn BRepAlgoAPI_Cut_history(op: &BRepAlgoAPI_Cut) -> UniquePtr<HandleBRepTools_History>;
         pub fn BRepAlgoAPI_Common_history(
             op: &BRepAlgoAPI_Common,
+        ) -> UniquePtr<HandleBRepTools_History>;
+        pub fn BRepAlgoAPI_Defeaturing_history(
+            op: Pin<&mut BRepAlgoAPI_Defeaturing>,
         ) -> UniquePtr<HandleBRepTools_History>;
         pub fn BRepBuilderAPI_Transform_history(
             op: Pin<&mut BRepBuilderAPI_Transform>,
