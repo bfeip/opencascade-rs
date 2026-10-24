@@ -7,7 +7,7 @@ use std::cell::OnceCell;
 use glam::DVec3;
 
 use crate::bounding_box::aabb;
-use crate::primitives::{Compound, Edge, EdgeCorner, EdgeType, Face, FaceType, Shape, ShapeElements};
+use crate::primitives::{AncestorMap, Compound, Edge, EdgeCorner, EdgeType, Face, FaceType, Shape, ShapeMap};
 use crate::{Error, FilletError};
 
 /// How far past a blend's setback holes and narrow faces are in its way, as a
@@ -52,24 +52,24 @@ impl Shape {
         edges: impl IntoIterator<Item = T>,
     ) -> Result<Self, Error> {
         let edges: Vec<T> = edges.into_iter().collect();
-        let elements = ShapeElements::new(self);
+        let graph = FaceGraph::new(self);
         let frames: Option<Vec<EdgeFrame>> =
-            edges.iter().map(|edge| EdgeFrame::new(&elements, edge.as_ref())).collect();
+            edges.iter().map(|edge| EdgeFrame::new(self, &graph, edge.as_ref())).collect();
         let Some(frames) = frames.filter(|frames| frames.iter().all(|frame| frame.corner.convex == Some(true)))
         else {
             return blend.apply(self, &edges);
         };
 
         let reach = REACH * frames.iter().map(|frame| blend.setback(&frame.corner)).fold(0.0, f64::max);
-        let holes = holes_in_reach(&elements, &frames, reach);
-        let pushes = far_faces(&elements, &frames, reach);
+        let holes = holes_in_reach(self, &graph, &frames, reach);
+        let pushes = far_faces(&graph, &frames, reach);
         if holes.is_empty() && pushes.is_empty() {
             return blend.apply(self, &edges);
         }
 
         let mut extended = match holes.is_empty() {
             true => self.deep_copy(),
-            false => self.remove_features(holes.iter().map(|&face| &elements.faces()[face]))?.0,
+            false => self.remove_features(holes.iter().map(|&face| &graph.faces[face]))?.0,
         };
         for push in &pushes {
             let face = face_in_plane(&extended, push.point, push.normal).ok_or(LOST)?;
@@ -118,38 +118,78 @@ impl Blend {
 struct EdgeFrame {
     start: DVec3,
     end: DVec3,
+    /// The two planes, by index.
+    faces: [usize; 2],
     corner: EdgeCorner,
 }
 
 impl EdgeFrame {
-    /// The frame of `edge`, unless it is anything but a straight edge between
-    /// two planes.
-    fn new(elements: &ShapeElements, edge: &Edge) -> Option<Self> {
+    /// The frame of `edge` of `shape`, unless it is anything but a straight
+    /// edge between two planes.
+    fn new(shape: &Shape, graph: &FaceGraph, edge: &Edge) -> Option<Self> {
         if edge.edge_type() != EdgeType::Line {
             return None;
         }
-        let corner = elements.corner(edge)?;
-        let planes = corner.faces.iter().all(|&face| elements.faces()[face].face_type() == FaceType::Plane);
-        planes.then(|| Self { start: edge.start_point(), end: edge.end_point(), corner })
+        let corner = shape.corner(edge)?;
+        let [a, b] = corner.faces.each_ref().map(|face| graph.face_map.index_of(face));
+        let faces = [a?, b?];
+        let planes = corner.faces.iter().all(|face| face.face_type() == FaceType::Plane);
+        planes.then(|| Self { start: edge.start_point(), end: edge.end_point(), faces, corner })
+    }
+}
+
+/// A shape's faces, numbered, and which of them each of its edges bounds.
+struct FaceGraph {
+    faces: Vec<Face>,
+    face_map: ShapeMap<Face>,
+    edges: AncestorMap<Edge, Face>,
+    /// Per edge of `edges`: the faces it bounds, by index, each once.
+    edge_faces: Vec<Vec<usize>>,
+}
+
+impl FaceGraph {
+    fn new(shape: &Shape) -> Self {
+        let face_map = ShapeMap::<Face>::new(shape);
+        let edges = AncestorMap::new(shape);
+        let edge_faces = (0..edges.len())
+            .map(|index| {
+                let mut faces = Vec::new();
+                for face in edges.ancestors(index).into_iter().flatten() {
+                    if let Some(face) = face_map.index_of(&face).filter(|face| !faces.contains(face)) {
+                        faces.push(face);
+                    }
+                }
+                faces
+            })
+            .collect();
+        Self { faces: face_map.iter().collect(), face_map, edges, edge_faces }
+    }
+
+    /// The faces `edge` bounds, by index: two for an edge between faces, one
+    /// for a seam or free edge, none for an edge of another shape.
+    fn adjacent(&self, edge: &Edge) -> &[usize] {
+        match self.edges.index_of(edge) {
+            Some(slot) => &self.edge_faces[slot],
+            None => &[],
+        }
     }
 }
 
 /// The faces of the holes and pockets through the frames' faces that come
 /// within `reach` of their edges.
-fn holes_in_reach(elements: &ShapeElements, frames: &[EdgeFrame], reach: f64) -> Vec<usize> {
-    let supports: Vec<usize> = frames.iter().flat_map(|frame| frame.corner.faces).collect();
+fn holes_in_reach(shape: &Shape, graph: &FaceGraph, frames: &[EdgeFrame], reach: f64) -> Vec<usize> {
+    let supports: Vec<usize> = frames.iter().flat_map(|frame| frame.faces).collect();
     let zone = frames.iter().fold((DVec3::MAX, DVec3::MIN), |(low, high), frame| {
         (low.min(frame.start.min(frame.end) - reach), high.max(frame.start.max(frame.end) + reach))
     });
-    let shape = elements.shape();
     let volume = shape.volume();
-    inner_wire_features(elements, &supports)
+    inner_wire_features(graph, &supports)
         .into_iter()
-        .filter(|feature| overlaps(bounds(elements, feature), zone))
+        .filter(|feature| overlaps(bounds(graph, feature), zone))
         // Filling a hole adds material; filling around a boss takes it away.
         .filter(|feature| {
             shape
-                .remove_features(feature.iter().map(|&face| &elements.faces()[face]))
+                .remove_features(feature.iter().map(|&face| &graph.faces[face]))
                 .is_ok_and(|(filled, _)| filled.volume() > volume * (1.0 + 1e-9))
         })
         .flatten()
@@ -159,8 +199,8 @@ fn holes_in_reach(elements: &ShapeElements, frames: &[EdgeFrame], reach: f64) ->
 /// The holes, pockets and bosses behind inner wires of `supports`, each as a
 /// connected group of faces. A group that also borders a support along its
 /// outer boundary belongs to the corner itself and is left out.
-fn inner_wire_features(elements: &ShapeElements, supports: &[usize]) -> Vec<Vec<usize>> {
-    let faces = elements.faces();
+fn inner_wire_features(graph: &FaceGraph, supports: &[usize]) -> Vec<Vec<usize>> {
+    let faces = &graph.faces;
     let rims: Vec<OnceCell<Vec<Edge>>> = faces.iter().map(|_| OnceCell::new()).collect();
     let rim = |face: usize| -> &[Edge] {
         rims[face].get_or_init(|| faces[face].inner_wires().flat_map(|wire| wire.edges()).collect())
@@ -172,7 +212,7 @@ fn inner_wire_features(elements: &ShapeElements, supports: &[usize]) -> Vec<Vec<
     let mut visited: Vec<usize> = Vec::new();
     for &support in supports {
         for rim_edge in rim(support) {
-            for &start in elements.adjacent_faces(rim_edge) {
+            for &start in graph.adjacent(rim_edge) {
                 if supports.contains(&start) || visited.contains(&start) {
                     continue;
                 }
@@ -183,7 +223,7 @@ fn inner_wire_features(elements: &ShapeElements, supports: &[usize]) -> Vec<Vec<
                     let face = feature[next];
                     next += 1;
                     for edge in faces[face].edges() {
-                        for &neighbour in elements.adjacent_faces(&edge) {
+                        for &neighbour in graph.adjacent(&edge) {
                             if feature.contains(&neighbour) {
                                 continue;
                             }
@@ -216,13 +256,13 @@ struct Push {
 /// The planar faces across the far side of each frame's faces closer to its
 /// edge than `reach`, which would cut the blend short, with how far each must
 /// move out.
-fn far_faces(elements: &ShapeElements, frames: &[EdgeFrame], reach: f64) -> Vec<Push> {
-    let faces = elements.faces();
+fn far_faces(graph: &FaceGraph, frames: &[EdgeFrame], reach: f64) -> Vec<Push> {
+    let faces = &graph.faces;
     let ends: Vec<DVec3> = frames.iter().flat_map(|frame| [frame.start, frame.end]).collect();
-    let supports: Vec<usize> = frames.iter().flat_map(|frame| frame.corner.faces).collect();
+    let supports: Vec<usize> = frames.iter().flat_map(|frame| frame.faces).collect();
     let mut pushes: Vec<(usize, Push)> = Vec::new();
     for frame in frames {
-        for support in frame.corner.faces {
+        for support in frame.faces {
             for edge in faces[support].outer_wire().edges() {
                 let touches = [edge.start_point(), edge.end_point()]
                     .iter()
@@ -230,7 +270,7 @@ fn far_faces(elements: &ShapeElements, frames: &[EdgeFrame], reach: f64) -> Vec<
                 if touches {
                     continue;
                 }
-                for &far in elements.adjacent_faces(&edge) {
+                for &far in graph.adjacent(&edge) {
                     let face = &faces[far];
                     // A piece of a support's own plane carries it on.
                     if supports.contains(&far)
@@ -258,8 +298,8 @@ fn far_faces(elements: &ShapeElements, frames: &[EdgeFrame], reach: f64) -> Vec<
 }
 
 /// The corners of the box around `faces`.
-fn bounds(elements: &ShapeElements, faces: &[usize]) -> (DVec3, DVec3) {
-    let compound = Compound::from_shapes(faces.iter().map(|&face| Shape::from(&elements.faces()[face])));
+fn bounds(graph: &FaceGraph, faces: &[usize]) -> (DVec3, DVec3) {
+    let compound = Compound::from_shapes(faces.iter().map(|&face| Shape::from(&graph.faces[face])));
     let bbox = aabb(&Shape::from(compound));
     (bbox.min(), bbox.max())
 }
@@ -358,6 +398,27 @@ mod tests {
             (Some(only), None) if only.shape_type() == ShapeType::Solid => only,
             _ => shape,
         }
+    }
+
+    #[test]
+    fn a_face_graph_links_each_edge_to_the_faces_it_bounds() {
+        let block = cube();
+        let box_graph = FaceGraph::new(&block);
+        for edge in block.edges() {
+            let faces = box_graph.adjacent(&edge);
+            assert_eq!(faces.len(), 2);
+            for &face in faces {
+                assert!(box_graph.faces[face].edges().any(|bounding| bounding.is_same(&edge)));
+            }
+        }
+
+        let rod = Shape::cylinder_radius_height(1.0, 2.0);
+        let rod_graph = FaceGraph::new(&rod);
+        let seam = rod.edges().find(|edge| rod.faces().any(|face| edge.is_seam(&face))).expect("a cylinder has a seam");
+        assert_eq!(rod_graph.adjacent(&seam).len(), 1);
+
+        let elsewhere = Edge::segment(DVec3::ZERO, DVec3::X).unwrap();
+        assert!(box_graph.adjacent(&elsewhere).is_empty());
     }
 
     fn cut(body: &Shape, tool: &Shape) -> Shape {

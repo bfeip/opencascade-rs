@@ -1,4 +1,4 @@
-use crate::primitives::{make_axis_2, make_point, Face};
+use crate::primitives::{make_axis_2, make_point, Face, Vertex};
 use crate::Error;
 use cxx::UniquePtr;
 use glam::{dvec3, DVec3};
@@ -174,6 +174,16 @@ impl Edge {
         );
 
         Self::from_make_edge(make_edge)
+    }
+
+    /// The vertex at [`start_point`](Self::start_point) (`TopExp::FirstVertex`).
+    pub fn start_vertex(&self) -> Vertex {
+        Vertex::from_vertex(&ffi::TopExp_FirstVertex(&self.inner))
+    }
+
+    /// The vertex at [`end_point`](Self::end_point) (`TopExp::LastVertex`).
+    pub fn end_vertex(&self) -> Vertex {
+        Vertex::from_vertex(&ffi::TopExp_LastVertex(&self.inner))
     }
 
     pub fn start_point(&self) -> DVec3 {

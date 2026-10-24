@@ -37,6 +37,12 @@ impl Vertex {
         Self { inner }
     }
 
+    /// Returns `true` if both vertices share the same underlying topology,
+    /// ignoring orientation.
+    pub fn is_same(&self, other: &Vertex) -> bool {
+        ffi::cast_vertex_to_shape(&self.inner).IsSame(ffi::cast_vertex_to_shape(&other.inner))
+    }
+
     /// Returns the 3D position of this vertex.
     pub fn point(&self) -> DVec3 {
         let point = ffi::BRep_Tool_Pnt(&self.inner);

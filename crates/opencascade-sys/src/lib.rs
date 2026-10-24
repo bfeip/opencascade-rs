@@ -1615,7 +1615,7 @@ pub mod ffi {
         pub fn BRepBuilderAPI_Copy_ModifiedShape(
             copy: &BRepBuilderAPI_Copy,
             shape: &TopoDS_Shape,
-        ) -> UniquePtr<TopoDS_Shape>;
+        ) -> Result<UniquePtr<TopoDS_Shape>>;
 
         /// Direct-modeling tweak: rigidly transform `faces` (sub-shapes of the
         /// solid `shape`) and re-solve the body around them. Errs when the
