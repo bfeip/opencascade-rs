@@ -73,7 +73,7 @@ impl Shape {
         };
         for push in &pushes {
             let face = face_in_plane(&extended, push.point, push.normal).ok_or(LOST)?;
-            extended = extended.tweak_faces([&face], translation(push.normal * push.by))?;
+            extended = extended.move_faces([&face], translation(push.normal * push.by))?;
         }
 
         let found: Option<Vec<Edge>> = frames

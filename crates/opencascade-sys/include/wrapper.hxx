@@ -1,10 +1,10 @@
 #include "rust/cxx.h"
 #include <sstream>
 #include <BOPAlgo_GlueEnum.hxx>
-#include <BOPAlgo_MakerVolume.hxx>
 #include <BOPAlgo_PaveFiller.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAlgoAPI_Check.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
@@ -79,7 +79,6 @@
 #include <NCollection_Array1.hxx>
 #include <NCollection_Array2.hxx>
 #include <Poly_Connect.hxx>
-#include <Precision.hxx>
 #include <STEPCAFControl_Reader.hxx>
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
@@ -99,11 +98,10 @@
 #include <TopAbs_ShapeEnum.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_DataMapOfShapeShape.hxx>
 #include <TopTools_HSequenceOfShape.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_MapOfShape.hxx>
 #include <TopoDS.hxx>
+#include <Tweak_MoveFaces.hxx>
 #include <XCAFApp_Application.hxx>
 #include <XCAFDoc_ColorTool.hxx>
 #include <XCAFDoc_Datum.hxx>
@@ -1303,254 +1301,9 @@ BRepOffsetAPI_DraftAngle_history(BRepOffsetAPI_DraftAngle &op,
       new HandleBRepTools_History(new BRepTools_History(inputs, op)));
 }
 
-// Oversized patch replacing a face whose boundary must be re-solved by the
-// tweak below. Closed-and-bounded surfaces (spheres, tori) cannot be extended
-// (BRepLib::ExtendFace has nowhere to go past the seam/poles) so for those
-// the patch is the face re-made over the full natural surface instead.
-inline TopoDS_Face shape_tweak_patch(const TopoDS_Face &face, Standard_Real extension) {
-  const Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
-  if (!surface.IsNull() && (surface->IsUClosed() || surface->IsVClosed())) {
-    Standard_Real u1, u2, v1, v2;
-    surface->Bounds(u1, u2, v1, v2);
-    if (!Precision::IsInfinite(u1) && !Precision::IsInfinite(u2) &&
-        !Precision::IsInfinite(v1) && !Precision::IsInfinite(v2)) {
-      BRepBuilderAPI_MakeFace make_face(surface, Precision::Confusion());
-      if (make_face.IsDone())
-        return make_face.Face();
-    }
-  }
-  TopoDS_Face patch;
-  BRepLib::ExtendFace(face, extension, Standard_True, Standard_True, Standard_True,
-                      Standard_True, patch);
-  return patch;
-}
-
-// Direct-modeling "tweak": rigidly transform a set of faces of a solid and
-// re-solve the body around them. OCCT has no native tweak operation, so this
-// follows the defeaturing recipe (see BOPAlgo_RemoveFeatures): transform the
-// picked faces, replace them and their edge-neighbors with oversized surface
-// patches (shape_tweak_patch), then rebuild enclosed volumes from the face
-// soup with BOPAlgo_MakerVolume and keep the volume that retains the most of
-// the original boundary — and only if it retains an image of every moved and
-// bordering face; a body that silently dropped part of its boundary (e.g. a
-// cavity the moved face no longer closes) is rejected. Throws whenever the
-// re-solve is impossible or yields an invalid body — that failure is the
-// supported way of detecting a tweak that doesn't make sense (face moved past
-// its neighbors, tangent/fillet junctions that cannot re-intersect, etc.).
-//
-// `history_out` receives the face history of the operation: input faces →
-// their images in the result (Modified), untouched faces that vanished are
-// Removed. Only faces are tracked.
-//
-// TODO: This obviously is not a 1:1 mapping of any OCCT function and thus doesn't
-// belong here. However, it would be a high amount of effort to expose all this
-// functionality 1:1 and then construct this operation on the Rust side... so
-// it lives here for now pending someone yelling at me
-inline std::unique_ptr<TopoDS_Shape>
-shape_tweak_faces_with_history(const TopoDS_Shape &shape, const TopTools_ListOfShape &faces,
-                               const gp_Trsf &transform, HandleBRepTools_History &history_out) {
-  try {
-    if (shape.ShapeType() != TopAbs_SOLID && shape.ShapeType() != TopAbs_COMPSOLID)
-      throw std::runtime_error("tweak: shape is not a solid");
-    if (faces.IsEmpty())
-      throw std::runtime_error("tweak: no faces given");
-
-    TopTools_MapOfShape tweaked;
-    for (TopTools_ListOfShape::Iterator it(faces); it.More(); it.Next())
-      tweaked.Add(it.Value());
-
-    // Neighbors: faces of the body sharing an edge with a tweaked face. Their
-    // boundary must be re-solved, so they get extended alongside the tweaked
-    // faces; all other faces keep their trimming and anchor the rebuild.
-    TopTools_IndexedDataMapOfShapeListOfShape edge_faces;
-    TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, edge_faces);
-    TopTools_MapOfShape neighbors;
-    TopTools_MapOfShape tweaked_found;
-    for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
-      if (!tweaked.Contains(exp.Current()))
-        continue;
-      tweaked_found.Add(exp.Current());
-      for (TopExp_Explorer edge(exp.Current(), TopAbs_EDGE); edge.More(); edge.Next()) {
-        const TopTools_ListOfShape *incident = edge_faces.Seek(edge.Current());
-        if (incident == nullptr)
-          continue;
-        for (TopTools_ListOfShape::Iterator it(*incident); it.More(); it.Next())
-          if (!tweaked.Contains(it.Value()))
-            neighbors.Add(it.Value());
-      }
-    }
-    if (tweaked_found.Extent() != tweaked.Extent())
-      throw std::runtime_error("tweak: a face does not belong to the shape");
-
-    // Extension patches must overshoot any place the new intersections can
-    // land; the bounding-box diagonal of the body plus its tweaked image is a
-    // safe bound.
-    Bnd_Box box;
-    BRepBndLib::Add(shape, box);
-    BRepBndLib::Add(BRepBuilderAPI_Transform(shape, transform, Standard_True).Shape(), box);
-    Standard_Real xmin, ymin, zmin, xmax, ymax, zmax;
-    box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
-    const Standard_Real extension =
-        gp_Pnt(xmin, ymin, zmin).Distance(gp_Pnt(xmax, ymax, zmax));
-
-    // Face soup, remembering each original face's soup member (its patch, or
-    // itself when untouched) for the history/gating pass below.
-    //
-    // Faces split from one underlying surface (a cavity crossing a sphere's
-    // seam, a face cut in two) must share a single patch: near-coincident
-    // duplicate patches derail the re-solve's face attribution. Patches are
-    // cached per (surface, role) — a piece being moved and a piece staying
-    // legitimately produce distinct patches.
-    std::vector<std::pair<Handle(Geom_Surface), TopoDS_Face>> tweaked_patches, neighbor_patches;
-    auto shared_patch = [&](std::vector<std::pair<Handle(Geom_Surface), TopoDS_Face>> &cache,
-                            const TopoDS_Face &face, const Standard_Real extension,
-                            const gp_Trsf *xform, bool &created) -> TopoDS_Face {
-      const Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
-      for (const auto &entry : cache)
-        if (entry.first == surface) {
-          created = false;
-          return entry.second;
-        }
-      TopoDS_Face source = face;
-      if (xform != nullptr)
-        source = TopoDS::Face(BRepBuilderAPI_Transform(face, *xform, Standard_True).Shape());
-      const TopoDS_Face patch = shape_tweak_patch(source, extension);
-      cache.emplace_back(surface, patch);
-      created = true;
-      return patch;
-    };
-
-    TopTools_DataMapOfShapeShape soup_member;
-    TopTools_ListOfShape soup;
-    for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
-      const TopoDS_Face &face = TopoDS::Face(exp.Current());
-      bool created = false;
-      if (tweaked.Contains(face)) {
-        const TopoDS_Face patch =
-            shared_patch(tweaked_patches, face, extension, &transform, created);
-        soup_member.Bind(face, patch);
-        if (created)
-          soup.Append(patch);
-      } else if (neighbors.Contains(face)) {
-        const TopoDS_Face patch = shared_patch(neighbor_patches, face, extension, nullptr, created);
-        soup_member.Bind(face, patch);
-        if (created)
-          soup.Append(patch);
-      } else {
-        soup_member.Bind(face, face);
-        soup.Append(face);
-      }
-    }
-
-    BOPAlgo_MakerVolume maker;
-    maker.SetArguments(soup);
-    maker.SetIntersect(Standard_True);
-    maker.SetAvoidInternalShapes(Standard_True);
-    // The soup contains faces of the caller's shape as-is; without this the
-    // BOP may mutate them (tolerances, PCurves), corrupting the input body —
-    // which must survive unchanged when the tweak fails.
-    maker.SetNonDestructive(Standard_True);
-    maker.Perform();
-    if (maker.HasErrors())
-      throw std::runtime_error("tweak: could not rebuild a volume from the moved faces");
-
-    std::vector<TopoDS_Shape> solids;
-    for (TopExp_Explorer exp(maker.Shape(), TopAbs_SOLID); exp.More(); exp.Next())
-      solids.push_back(exp.Current());
-    if (solids.empty())
-      throw std::runtime_error("tweak: the moved faces enclose no volume");
-
-    // Score candidates by how many untouched input faces (or their split
-    // images, via the boolean history) they retain: the tweaked body keeps the
-    // bulk of the original boundary while sliver by-products don't. Volume
-    // breaks ties (and decides outright when every face was tweaked/neighbor).
-    std::vector<TopTools_MapOfShape> solid_faces(solids.size());
-    for (std::size_t i = 0; i < solids.size(); ++i)
-      for (TopExp_Explorer exp(solids[i], TopAbs_FACE); exp.More(); exp.Next())
-        solid_faces[i].Add(exp.Current());
-
-    std::vector<int> score(solids.size(), 0);
-    for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
-      const TopoDS_Shape &face = exp.Current();
-      if (tweaked.Contains(face) || neighbors.Contains(face))
-        continue;
-      TopTools_ListOfShape images = maker.Modified(face);
-      if (images.IsEmpty())
-        images.Append(face);
-      for (TopTools_ListOfShape::Iterator it(images); it.More(); it.Next())
-        for (std::size_t i = 0; i < solids.size(); ++i)
-          if (solid_faces[i].Contains(it.Value()))
-            ++score[i];
-    }
-
-    std::size_t best = 0;
-    Standard_Real best_volume = -1.0;
-    for (std::size_t i = 0; i < solids.size(); ++i) {
-      GProp_GProps props;
-      BRepGProp::VolumeProperties(solids[i], props);
-      const Standard_Real volume = props.Mass();
-      if (score[i] > score[best] || (score[i] == score[best] && volume > best_volume)) {
-        best = i;
-        best_volume = volume;
-      }
-    }
-    const Standard_Real confusion = Precision::Confusion();
-    if (best_volume <= confusion * confusion * confusion)
-      throw std::runtime_error("tweak: the rebuilt body is degenerate");
-
-    // Gate + face history: trace every face of the body into the winning solid
-    // through its soup member. Any face with no image there means the re-solve
-    // dropped part of the boundary (e.g. a cavity the moved face no longer
-    // closes) — reject rather than return a silently altered body. Legitimate
-    // feature-consuming edits fail here too; re-solving from operation history
-    // is the supported recovery.
-    Handle(BRepTools_History) history = new BRepTools_History();
-    for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
-      const TopoDS_Shape &face = exp.Current();
-      const TopoDS_Shape &member = soup_member.Find(face);
-      TopTools_ListOfShape images = maker.Modified(member);
-      if (images.IsEmpty())
-        images.Append(member);
-      bool survived = false;
-      for (TopTools_ListOfShape::Iterator it(images); it.More(); it.Next()) {
-        if (!solid_faces[best].Contains(it.Value()))
-          continue;
-        survived = true;
-        if (!it.Value().IsSame(face))
-          history->AddModified(face, it.Value());
-      }
-      if (!survived) {
-        const char *role = tweaked.Contains(face)      ? "a moved"
-                           : neighbors.Contains(face)  ? "a bordering"
-                                                       : "an unrelated";
-        const Handle(Geom_Surface) surface = BRep_Tool::Surface(TopoDS::Face(face));
-        const char *kind =
-            surface.IsNull() ? "unknown surface" : surface->DynamicType()->Name();
-        throw std::runtime_error(std::string("tweak: ") + role + " face (" + kind +
-                                 ") did not survive the re-solve");
-      }
-    }
-
-    BRepCheck_Analyzer analyzer(solids[best]);
-    if (!analyzer.IsValid())
-      throw std::runtime_error("tweak: the rebuilt body is not a valid solid");
-
-    history_out = history;
-    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(solids[best]));
-  } catch (const Standard_Failure &failure) {
-    // OCCT exceptions don't derive from std::exception; rethrow as one so cxx
-    // reports them as Err instead of aborting.
-    const char *msg = failure.GetMessageString();
-    throw std::runtime_error(std::string("tweak: ") +
-                             ((msg != nullptr && msg[0] != '\0') ? msg
-                                                                 : failure.DynamicType()->Name()));
-  }
-}
-
-inline std::unique_ptr<TopoDS_Shape> shape_tweak_faces(const TopoDS_Shape &shape,
-                                                       const TopTools_ListOfShape &faces,
-                                                       const gp_Trsf &transform) {
-  HandleBRepTools_History scratch;
-  return shape_tweak_faces_with_history(shape, faces, transform, scratch);
+inline std::unique_ptr<HandleBRepTools_History>
+Tweak_MoveFaces_history(Tweak_MoveFaces &op, const TopTools_ListOfShape &inputs) {
+  return std::unique_ptr<HandleBRepTools_History>(
+      new HandleBRepTools_History(new BRepTools_History(inputs, op)));
 }
 

@@ -937,6 +937,17 @@ pub mod ffi {
         ) -> Result<UniquePtr<BRepCheck_Analyzer>>;
         pub fn IsValid(self: &BRepCheck_Analyzer) -> bool;
 
+        type BRepAlgoAPI_Check;
+
+        #[cxx_name = "construct_unique"]
+        pub fn BRepAlgoAPI_Check_ctor(
+            shape: &TopoDS_Shape,
+            test_small_edges: bool,
+            test_self_interference: bool,
+            progress: &Message_ProgressRange,
+        ) -> Result<UniquePtr<BRepAlgoAPI_Check>>;
+        pub fn IsValid(self: Pin<&mut BRepAlgoAPI_Check>) -> bool;
+
         // Fillets
         type BRepFilletAPI_MakeFillet;
         type ChFiDS_ErrorStatus;
@@ -1131,6 +1142,27 @@ pub mod ffi {
             progress: &Message_ProgressRange,
         ) -> Result<()>;
         pub fn IsDone(self: &BRepOffsetAPI_DraftAngle) -> bool;
+
+        // Face moves
+        type Tweak_MoveFaces;
+
+        #[cxx_name = "construct_unique"]
+        pub fn Tweak_MoveFaces_ctor(shape: &TopoDS_Shape) -> UniquePtr<Tweak_MoveFaces>;
+
+        pub fn Add(
+            self: Pin<&mut Tweak_MoveFaces>,
+            face: &TopoDS_Face,
+            transform: &gp_Trsf,
+        ) -> Result<()>;
+        pub fn AddDone(self: &Tweak_MoveFaces) -> bool;
+        pub fn ProblematicShape(self: &Tweak_MoveFaces) -> &TopoDS_Shape;
+        pub fn Status(self: &Tweak_MoveFaces) -> Draft_ErrorStatus;
+        pub fn Shape(self: Pin<&mut Tweak_MoveFaces>) -> &TopoDS_Shape;
+        pub fn Build(
+            self: Pin<&mut Tweak_MoveFaces>,
+            progress: &Message_ProgressRange,
+        ) -> Result<()>;
+        pub fn IsDone(self: &Tweak_MoveFaces) -> bool;
 
         // Sweeps
         type BRepOffsetAPI_MakePipe;
@@ -1385,6 +1417,10 @@ pub mod ffi {
             op: Pin<&mut BRepOffsetAPI_DraftAngle>,
             inputs: &TopTools_ListOfShape,
         ) -> UniquePtr<HandleBRepTools_History>;
+        pub fn Tweak_MoveFaces_history(
+            op: Pin<&mut Tweak_MoveFaces>,
+            inputs: &TopTools_ListOfShape,
+        ) -> UniquePtr<HandleBRepTools_History>;
 
         // Geometric processor
         type gp_Ax1;
@@ -1615,24 +1651,6 @@ pub mod ffi {
         pub fn BRepBuilderAPI_Copy_ModifiedShape(
             copy: &BRepBuilderAPI_Copy,
             shape: &TopoDS_Shape,
-        ) -> Result<UniquePtr<TopoDS_Shape>>;
-
-        /// Direct-modeling tweak: rigidly transform `faces` (sub-shapes of the
-        /// solid `shape`) and re-solve the body around them. Errs when the
-        /// re-solve is impossible or yields an invalid solid.
-        pub fn shape_tweak_faces(
-            shape: &TopoDS_Shape,
-            faces: &TopTools_ListOfShape,
-            transform: &gp_Trsf,
-        ) -> Result<UniquePtr<TopoDS_Shape>>;
-
-        /// Like `shape_tweak_faces`, additionally filling `history_out` with
-        /// the operation's face history (input faces → result faces).
-        pub fn shape_tweak_faces_with_history(
-            shape: &TopoDS_Shape,
-            faces: &TopTools_ListOfShape,
-            transform: &gp_Trsf,
-            history_out: Pin<&mut HandleBRepTools_History>,
         ) -> Result<UniquePtr<TopoDS_Shape>>;
 
         // Topology Explorer

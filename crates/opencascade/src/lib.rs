@@ -49,8 +49,6 @@ pub enum Error {
     ArcLengthFailed(String),
     #[error("transform is not a similarity (rotation + translation + uniform scale)")]
     NotASimilarityTransform,
-    #[error("failed to tweak faces: {0}")]
-    TweakFailed(String),
     #[error("failed to remove features: {0}")]
     RemoveFeaturesFailed(String),
     #[error("failed to unify same-domain geometry: {0}")]
@@ -61,6 +59,8 @@ pub enum Error {
     RevolveFailed(String),
     #[error("failed to apply draft angle: {0:?}")]
     DraftFailed(DraftError),
+    #[error("failed to move faces: {0:?}")]
+    MoveFacesFailed(DraftError),
     #[error("failed to offset shape: {0:?}")]
     OffsetFailed(OffsetError),
     #[error("failed to fillet or chamfer edges: {0:?}")]
@@ -147,7 +147,8 @@ impl From<ffi::BRepBuilderAPI_FaceError> for FaceError {
     }
 }
 
-/// Reason a `BRepOffsetAPI_DraftAngle` failed to taper a face.
+/// Reason a `BRepOffsetAPI_DraftAngle` failed to taper a face, or a
+/// `Tweak_MoveFaces` to move one.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum DraftError {
     /// A face could not take the draft. Only planar, cylindrical and conical
@@ -155,6 +156,9 @@ pub enum DraftError {
     FaceRecomputation,
     EdgeRecomputation,
     VertexRecomputation,
+    /// The result is invalid or passes through itself: the faces cannot
+    /// keep their topology.
+    InvalidResult,
     /// An error code not recognized by this wrapper (including a spurious "no error").
     Unknown,
 }
