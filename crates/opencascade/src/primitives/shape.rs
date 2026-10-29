@@ -2016,11 +2016,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "a sphere's pole on the cavity rim must move with it, which re-parametrising the sphere would allow"]
     fn move_faces_with_a_pole_on_the_rim() {
         // The modeler's box recipe (a rectangle extruded along the normal),
         // bitten by a sphere snapped to a corner: the sphere's pole lands on the
-        // box's upright edge, at a vertex of the cavity's rim.
+        // box's upright edge, at a vertex of the cavity's rim, which moves. The
+        // sphere is re-seated to keep its poles and seam clear of the rim.
         let (w, d, h) = (10.0, 10.0, 5.0);
         let corners = [dvec3(0.0, 0.0, 0.0), dvec3(w, 0.0, 0.0), dvec3(w, 0.0, d), dvec3(0.0, 0.0, d)];
         let face = Face::from_wire(&Wire::from_ordered_points(corners).expect("rectangle wire")).expect("a face");

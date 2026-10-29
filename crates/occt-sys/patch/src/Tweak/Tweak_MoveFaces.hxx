@@ -10,15 +10,20 @@
 #define _Tweak_MoveFaces_HeaderFile
 
 #include <BRepBuilderAPI_ModifyShape.hxx>
+#include <BRepTools_History.hxx>
 #include <Draft_ErrorStatus.hxx>
+#include <gp_Trsf.hxx>
+#include <NCollection_List.hxx>
 #include <TopTools_ListOfShape.hxx>
 
-class gp_Trsf;
 class TopoDS_Face;
 class TopoDS_Shape;
 
 //! Moves faces of a shape, re-trimming the faces around them to meet them
-//! (see Tweak_Modification). The topology of the shape is kept.
+//! (see Tweak_Modification). The topology of the shape is kept, except that
+//! a sphere bordering a moved face, whose poles or seam lie near the edges
+//! about to move, first has them turned away from its boundary: a moving
+//! edge could otherwise have to cross them.
 //!
 //! Usage mirrors BRepOffsetAPI_DraftAngle: Add each face with its move,
 //! check AddDone, then Build and check IsDone.
@@ -46,6 +51,19 @@ public:
 
   Standard_EXPORT virtual void Build(
     const Message_ProgressRange& theRange = Message_ProgressRange()) Standard_OVERRIDE;
+
+  Standard_EXPORT virtual const TopTools_ListOfShape& Modified(const TopoDS_Shape& S) Standard_OVERRIDE;
+
+  Standard_EXPORT virtual const TopTools_ListOfShape& Generated(const TopoDS_Shape& S) Standard_OVERRIDE;
+
+  Standard_EXPORT virtual Standard_Boolean IsDeleted(const TopoDS_Shape& S) Standard_OVERRIDE;
+
+private:
+  //! The added faces, and their moves.
+  TopTools_ListOfShape myFaces;
+  NCollection_List<gp_Trsf> myMoves;
+  //! From the initial shape to the result, through the re-seated spheres.
+  Handle(BRepTools_History) myHistory;
 };
 
 #endif // _Tweak_MoveFaces_HeaderFile
