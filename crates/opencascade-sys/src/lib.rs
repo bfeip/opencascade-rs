@@ -2146,6 +2146,12 @@ pub mod ffi {
         // BinTools
         pub fn write_brep_bin(shape: &TopoDS_Shape, path: String) -> bool;
         pub fn read_brep_bin(path: String) -> UniquePtr<TopoDS_Shape>;
+        pub fn write_brep_bin_to_bytes(
+            shape: &TopoDS_Shape,
+            with_triangles: bool,
+            with_normals: bool,
+        ) -> Result<Vec<u8>>;
+        pub fn read_brep_bin_from_bytes(bytes: &[u8]) -> Result<UniquePtr<TopoDS_Shape>>;
 
         // Cleaning
         type ShapeUpgrade_UnifySameDomain;

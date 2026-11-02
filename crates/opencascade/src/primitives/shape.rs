@@ -765,6 +765,21 @@ impl Shape {
         }
     }
 
+    /// The shape in OCCT's binary B-Rep format, with its faces' triangulation
+    /// if `with_triangles`.
+    pub fn write_brep_bin_to_bytes(&self, with_triangles: bool) -> Result<Vec<u8>, Error> {
+        ffi::write_brep_bin_to_bytes(&self.inner, with_triangles, false)
+            .map_err(|_| Error::BrepWriteFailed)
+    }
+
+    /// Reads a shape in OCCT's binary B-Rep format.
+    pub fn read_brep_bin_from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        match ffi::read_brep_bin_from_bytes(bytes) {
+            Ok(inner) if !inner.is_null() => Ok(Self { inner }),
+            _ => Err(Error::BrepReadFailed),
+        }
+    }
+
     pub fn union(&self, other: &Shape) -> Result<BooleanShape, Error> {
         boolean_shape::fuse(&self.inner, &other.inner, 0.0)
     }
@@ -1707,6 +1722,41 @@ mod tests {
         assert!(!wire.contains_type(ShapeType::Shell));
         assert!(!wire.contains_type(ShapeType::Face));
         assert!(wire.contains_type(ShapeType::Edge));
+    }
+
+    /// A box with a cylindrical hole through it: planar, cylindrical and seam
+    /// geometry together.
+    fn drilled_box() -> Shape {
+        let hole = Shape::cylinder(dvec3(1.0, 1.0, -1.0), 0.5, DVec3::Z, 4.0);
+        Shape::cube(2.0).subtract(&hole).unwrap().shape
+    }
+
+    #[test]
+    fn binary_brep_round_trips_through_bytes() {
+        let shape = drilled_box();
+        let bytes = shape.write_brep_bin_to_bytes(false).unwrap();
+        let read = Shape::read_brep_bin_from_bytes(&bytes).unwrap();
+
+        assert!((read.volume() - shape.volume()).abs() < 1e-12);
+        assert_eq!(read.faces().count(), shape.faces().count());
+        assert!(read.is_valid());
+    }
+
+    #[test]
+    fn binary_brep_leaves_out_triangulation_on_request() {
+        let shape = drilled_box();
+        shape.mesh().unwrap();
+        let with = shape.write_brep_bin_to_bytes(true).unwrap();
+        let without = shape.write_brep_bin_to_bytes(false).unwrap();
+        assert!(without.len() < with.len());
+    }
+
+    #[test]
+    fn binary_brep_rejects_bad_bytes() {
+        let bytes = drilled_box().write_brep_bin_to_bytes(false).unwrap();
+        assert!(Shape::read_brep_bin_from_bytes(&[]).is_err());
+        assert!(Shape::read_brep_bin_from_bytes(b"not a shape at all").is_err());
+        assert!(Shape::read_brep_bin_from_bytes(&bytes[..bytes.len() / 2]).is_err());
     }
 
     #[test]

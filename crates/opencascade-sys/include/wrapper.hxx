@@ -660,6 +660,30 @@ inline std::unique_ptr<TopoDS_Shape> read_brep_bin(rust::String path) {
   return std::unique_ptr<TopoDS_Shape>(nullptr);
 }
 
+inline rust::Vec<uint8_t> write_brep_bin_to_bytes(const TopoDS_Shape &shape, bool with_triangles,
+                                                  bool with_normals) {
+  std::ostringstream stream(std::ios::out | std::ios::binary);
+  BinTools::Write(shape, stream, with_triangles, with_normals, BinTools_FormatVersion_CURRENT);
+  const std::string data = stream.str();
+  rust::Vec<uint8_t> bytes;
+  bytes.reserve(data.size());
+  for (char byte : data) {
+    bytes.push_back(static_cast<uint8_t>(byte));
+  }
+  return bytes;
+}
+
+inline std::unique_ptr<TopoDS_Shape> read_brep_bin_from_bytes(rust::Slice<const uint8_t> bytes) {
+  std::istringstream stream(std::string(reinterpret_cast<const char *>(bytes.data()), bytes.size()),
+                            std::ios::in | std::ios::binary);
+  auto shape = std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape());
+  BinTools::Read(*shape, stream);
+  if (stream.fail() || shape->IsNull()) {
+    return std::unique_ptr<TopoDS_Shape>(nullptr);
+  }
+  return shape;
+}
+
 // Collections
 inline void map_shapes(const TopoDS_Shape &S, const TopAbs_ShapeEnum T, TopTools_IndexedMapOfShape &M) {
   TopExp::MapShapes(S, T, M);
