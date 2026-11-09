@@ -305,6 +305,14 @@ impl Edge {
         Some(ffi::BRepAdaptor_Curve_Circle(&curve).Radius())
     }
 
+    /// Centre and unit normal of a circular edge.
+    pub fn circle_axis(&self) -> Option<(DVec3, DVec3)> {
+        let curve = self.adaptor_of(EdgeType::Circle)?;
+        let circle = ffi::BRepAdaptor_Curve_Circle(&curve);
+        let (centre, normal) = (circle.Location(), circle.Axis().Direction());
+        Some((dvec3(centre.X(), centre.Y(), centre.Z()), dvec3(normal.X(), normal.Y(), normal.Z())))
+    }
+
     /// Major and minor radii of an elliptical edge.
     pub fn ellipse_radii(&self) -> Option<(f64, f64)> {
         let curve = self.adaptor_of(EdgeType::Ellipse)?;
@@ -424,6 +432,17 @@ mod tests {
         assert_eq!(circle.edge_type(), EdgeType::Circle);
         assert!((circle.circle_radius().unwrap() - 2.0).abs() < 1e-9);
         assert!((circle.length() - 4.0 * std::f64::consts::PI).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_circle_reports_its_axis_and_a_segment_has_none() {
+        let circle = Edge::circle(dvec3(1.0, 2.0, 3.0), DVec3::Y, 2.0).unwrap();
+        let (centre, normal) = circle.circle_axis().unwrap();
+        assert!((centre - dvec3(1.0, 2.0, 3.0)).length() < 1e-9, "{centre}");
+        assert!((normal - DVec3::Y).length() < 1e-9, "{normal}");
+
+        let edge = Edge::segment(DVec3::ZERO, DVec3::X).unwrap();
+        assert_eq!(edge.circle_axis(), None);
     }
 
     #[test]

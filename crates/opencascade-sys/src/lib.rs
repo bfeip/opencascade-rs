@@ -557,6 +557,8 @@ pub mod ffi {
         #[cxx_name = "construct_unique"]
         pub fn gp_Circ_ctor(axis: &gp_Ax2, radius: f64) -> UniquePtr<gp_Circ>;
         pub fn Radius(self: &gp_Circ) -> f64;
+        pub fn Location(self: &gp_Circ) -> &gp_Pnt;
+        pub fn Axis(self: &gp_Circ) -> &gp_Ax1;
 
         // Analytic curves and surfaces
         type gp_Elips;
