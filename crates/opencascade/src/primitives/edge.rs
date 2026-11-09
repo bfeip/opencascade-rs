@@ -228,6 +228,31 @@ impl Edge {
         Ok((dvec3(point.X(), point.Y(), point.Z()), tangent_at(&curve, middle)))
     }
 
+    /// The point of the edge nearest `point`, and the unit tangent there.
+    pub fn project(&self, point: DVec3) -> Result<(DVec3, DVec3), Error> {
+        let (mut first, mut last) = (0.0, 0.0);
+        let geometry = ffi::BRep_Tool_Curve(&self.inner, &mut first, &mut last);
+        if geometry.IsNull() {
+            return Err(Error::CurveProjectionFailed("the edge has no 3D curve".to_owned()));
+        }
+        // The projection finds only perpendicular feet within the range, so the
+        // ends compete with it.
+        let projector = ffi::GeomAPI_ProjectPointOnCurve_ctor(&make_point(point), &geometry, first, last);
+        let foot = projector.LowerDistanceParameter().ok();
+
+        let curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
+        let at = |u: f64| {
+            let p = ffi::BRepAdaptor_Curve_value(&curve, u);
+            dvec3(p.X(), p.Y(), p.Z())
+        };
+        let u = foot
+            .into_iter()
+            .chain([first, last])
+            .min_by(|&a, &b| at(a).distance_squared(point).total_cmp(&at(b).distance_squared(point)))
+            .expect("the ends are always candidates");
+        Ok((at(u), tangent_at(&curve, u)))
+    }
+
     /// Unit tangent at [`start_point`](Self::start_point), pointing along the edge.
     pub fn start_tangent(&self) -> DVec3 {
         let curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
@@ -399,6 +424,25 @@ mod tests {
         assert_eq!(circle.edge_type(), EdgeType::Circle);
         assert!((circle.circle_radius().unwrap() - 2.0).abs() < 1e-9);
         assert!((circle.length() - 4.0 * std::f64::consts::PI).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_point_projects_onto_a_circle_with_its_tangent() {
+        let circle = Edge::circle(DVec3::ZERO, DVec3::Z, 2.0).unwrap();
+        let (nearest, tangent) = circle.project(dvec3(3.0, 0.0, 1.0)).unwrap();
+        assert!((nearest - dvec3(2.0, 0.0, 0.0)).length() < 1e-9, "{nearest}");
+        assert!((tangent.y.abs() - 1.0).abs() < 1e-9, "{tangent}");
+    }
+
+    #[test]
+    fn a_point_past_a_segment_projects_onto_its_end() {
+        let edge = Edge::segment(DVec3::ZERO, dvec3(2.0, 0.0, 0.0)).unwrap();
+        let (nearest, tangent) = edge.project(dvec3(3.0, 1.0, 0.0)).unwrap();
+        assert!((nearest - dvec3(2.0, 0.0, 0.0)).length() < 1e-9, "{nearest}");
+        assert!((tangent - DVec3::X).length() < 1e-9, "{tangent}");
+
+        let (inside, _) = edge.project(dvec3(0.5, 1.0, 0.0)).unwrap();
+        assert!((inside - dvec3(0.5, 0.0, 0.0)).length() < 1e-9, "{inside}");
     }
 
     #[test]

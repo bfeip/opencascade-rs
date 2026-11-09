@@ -1469,6 +1469,17 @@ pub mod ffi {
             v: &mut f64,
         ) -> Result<()>;
 
+        type GeomAPI_ProjectPointOnCurve;
+
+        #[cxx_name = "construct_unique"]
+        pub fn GeomAPI_ProjectPointOnCurve_ctor(
+            point: &gp_Pnt,
+            curve: &HandleGeomCurve,
+            u_min: f64,
+            u_max: f64,
+        ) -> UniquePtr<GeomAPI_ProjectPointOnCurve>;
+        pub fn LowerDistanceParameter(self: &GeomAPI_ProjectPointOnCurve) -> Result<f64>;
+
         // Bezier Curve
         type Geom_BezierCurve;
 

@@ -45,6 +45,8 @@ pub enum Error {
     FaceFailed(FaceError),
     #[error("failed to project point onto surface: {0}")]
     SurfaceProjectionFailed(String),
+    #[error("failed to project point onto curve: {0}")]
+    CurveProjectionFailed(String),
     #[error("failed to measure along the curve: {0}")]
     ArcLengthFailed(String),
     #[error("transform is not a similarity (rotation + translation + uniform scale)")]
