@@ -1481,6 +1481,30 @@ pub mod ffi {
             u_max: f64,
         ) -> UniquePtr<GeomAPI_ProjectPointOnCurve>;
         pub fn LowerDistanceParameter(self: &GeomAPI_ProjectPointOnCurve) -> Result<f64>;
+        pub fn NbPoints(self: &GeomAPI_ProjectPointOnCurve) -> i32;
+        pub fn Parameter(self: &GeomAPI_ProjectPointOnCurve, index: i32) -> f64;
+
+        type BRepExtrema_ExtPF;
+
+        #[cxx_name = "construct_unique"]
+        pub fn BRepExtrema_ExtPF_ctor(
+            vertex: &TopoDS_Vertex,
+            face: &TopoDS_Face,
+        ) -> Result<UniquePtr<BRepExtrema_ExtPF>>;
+        pub fn IsDone(self: &BRepExtrema_ExtPF) -> bool;
+        pub fn NbExt(self: &BRepExtrema_ExtPF) -> i32;
+        pub fn BRepExtrema_ExtPF_Point(extrema: &BRepExtrema_ExtPF, n: i32) -> UniquePtr<gp_Pnt>;
+
+        type BRepExtrema_DistShapeShape;
+
+        #[cxx_name = "construct_unique"]
+        pub fn BRepExtrema_DistShapeShape_ctor(
+            shape1: &TopoDS_Shape,
+            shape2: &TopoDS_Shape,
+        ) -> Result<UniquePtr<BRepExtrema_DistShapeShape>>;
+        pub fn IsDone(self: &BRepExtrema_DistShapeShape) -> bool;
+        pub fn NbSolution(self: &BRepExtrema_DistShapeShape) -> i32;
+        pub fn PointOnShape2(self: &BRepExtrema_DistShapeShape, n: i32) -> &gp_Pnt;
 
         // Bezier Curve
         type Geom_BezierCurve;

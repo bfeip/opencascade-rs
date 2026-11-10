@@ -22,6 +22,8 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <BRepExtrema_ExtPF.hxx>
 #include <BRepFeat_MakeCylindricalHole.hxx>
 #include <BRepFeat_MakeDPrism.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
@@ -300,6 +302,11 @@ inline std::unique_ptr<HandleGeomTrimmedCurve> GC_MakeArcOfCircle_Value(const GC
 
 inline std::unique_ptr<gp_Pnt> BRepAdaptor_Curve_value(const BRepAdaptor_Curve &curve, const Standard_Real U) {
   return std::unique_ptr<gp_Pnt>(new gp_Pnt(curve.Value(U)));
+}
+
+// BRepExtrema
+inline std::unique_ptr<gp_Pnt> BRepExtrema_ExtPF_Point(const BRepExtrema_ExtPF &extrema, const Standard_Integer N) {
+  return std::unique_ptr<gp_Pnt>(new gp_Pnt(extrema.Point(N)));
 }
 
 inline std::unique_ptr<gp_Circ> BRepAdaptor_Curve_Circle(const BRepAdaptor_Curve &curve) {

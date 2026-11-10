@@ -3,7 +3,8 @@ use crate::{
     law_function::law_function_from_graph,
     make_pipe_shell::make_pipe_shell_with_law_function,
     primitives::{
-        make_axis_1, make_point, make_vec, EdgeIterator, JoinType, Shape, Solid, Surface, Wire,
+        make_axis_1, make_point, make_vec, EdgeIterator, JoinType, Shape, Solid, Surface, Vertex,
+        Wire,
     },
     workplane::Workplane,
     Error,
@@ -313,6 +314,38 @@ impl Face {
         let center = ffi::GProp_GProps_CentreOfMass(&props);
 
         dvec3(center.X(), center.Y(), center.Z())
+    }
+
+    /// The point of the face nearest `point`: a foot of a perpendicular inside
+    /// it, or a point of its boundary.
+    pub fn project(&self, point: DVec3) -> Result<DVec3, Error> {
+        let vertex = Vertex::new(point);
+        let distance = ffi::BRepExtrema_DistShapeShape_ctor(
+            ffi::cast_vertex_to_shape(&vertex.inner),
+            ffi::cast_face_to_shape(&self.inner),
+        )
+        .map_err(|e| Error::SurfaceProjectionFailed(e.what().to_string()))?;
+        if !distance.IsDone() || distance.NbSolution() < 1 {
+            return Err(Error::SurfaceProjectionFailed("no nearest point".to_owned()));
+        }
+        let nearest = distance.PointOnShape2(1);
+        Ok(dvec3(nearest.X(), nearest.Y(), nearest.Z()))
+    }
+
+    /// Every point inside the face where the line from `point` meets it at a
+    /// right angle.
+    pub fn projections(&self, point: DVec3) -> Result<Vec<DVec3>, Error> {
+        let vertex = Vertex::new(point);
+        let extrema = ffi::BRepExtrema_ExtPF_ctor(&vertex.inner, &self.inner)
+            .map_err(|e| Error::SurfaceProjectionFailed(e.what().to_string()))?;
+        if !extrema.IsDone() {
+            return Err(Error::SurfaceProjectionFailed("no extrema found".to_owned()));
+        }
+        let feet = (1..=extrema.NbExt()).map(|n| {
+            let foot = ffi::BRepExtrema_ExtPF_Point(&extrema, n);
+            dvec3(foot.X(), foot.Y(), foot.Z())
+        });
+        Ok(feet.collect())
     }
 
     pub fn normal_at(&self, pos: DVec3) -> Result<DVec3, Error> {
@@ -631,6 +664,44 @@ impl From<ffi::TopAbs_Orientation> for FaceOrientation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The top face of a 2-unit cube on the origin, at z = 2.
+    fn cube_top() -> Face {
+        let cube = Shape::box_from_corners(DVec3::ZERO, dvec3(2.0, 2.0, 2.0));
+        cube.faces().find(|face| (face.center_of_mass().z - 2.0).abs() < 1e-9).unwrap()
+    }
+
+    #[test]
+    fn a_point_projects_square_onto_a_face_only_inside_it() {
+        let top = cube_top();
+        let feet = top.projections(dvec3(1.0, 0.5, 5.0)).unwrap();
+        let [foot] = feet.as_slice() else { panic!("expected one foot: {feet:?}") };
+        assert!((*foot - dvec3(1.0, 0.5, 2.0)).length() < 1e-9, "{foot}");
+
+        assert!(top.projections(dvec3(3.0, 0.5, 5.0)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_point_beside_a_face_projects_onto_its_boundary() {
+        let top = cube_top();
+        let inside = top.project(dvec3(1.0, 0.5, 5.0)).unwrap();
+        assert!((inside - dvec3(1.0, 0.5, 2.0)).length() < 1e-9, "{inside}");
+
+        let beside = top.project(dvec3(3.0, 0.5, 5.0)).unwrap();
+        assert!((beside - dvec3(2.0, 0.5, 2.0)).length() < 1e-9, "{beside}");
+    }
+
+    #[test]
+    fn a_point_projects_square_onto_both_sides_of_a_cylinder() {
+        let cylinder = Shape::cylinder_radius_height(2.0, 3.0);
+        let side = cylinder.faces().find(|f| f.face_type() == FaceType::Cylinder).unwrap();
+        let mut feet = side.projections(dvec3(5.0, 0.0, 1.0)).unwrap();
+        feet.sort_by(|a, b| a.x.total_cmp(&b.x));
+
+        let [far, near] = feet.as_slice() else { panic!("expected two feet: {feet:?}") };
+        assert!((*far - dvec3(-2.0, 0.0, 1.0)).length() < 1e-6, "{far}");
+        assert!((*near - dvec3(2.0, 0.0, 1.0)).length() < 1e-6, "{near}");
+    }
 
     #[test]
     fn analytic_faces_report_their_type_and_dimensions() {

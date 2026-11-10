@@ -3,7 +3,7 @@ use crate::{
     mesh::{FaceRange, Mesh, Mesher},
     primitives::{
         boolean_shape, make_axis_1, make_axis_2, make_dir, make_point, make_point2d, make_vec,
-        AncestorMap, BooleanShape, Compound, Edge, EdgeIterator, Face, FaceIterator, JoinType,
+        AncestorMap, BooleanShape, Compound, Edge, EdgeIterator, EdgePoint, Face, FaceIterator, JoinType,
         ShapeType, Shell, Solid, SubShapeIterator, Vertex, VertexIterator, Wire, WireIterator,
     },
     Error, FilletError, OffsetError,
@@ -572,7 +572,7 @@ impl Shape {
     /// along it; `None` unless it bounds two, or where one has no normal there.
     pub fn corner(&self, edge: &Edge) -> Option<EdgeCorner> {
         let faces: [Face; 2] = self.adjacent_faces(edge).try_into().ok()?;
-        let (point, tangent) = edge.length_midpoint().ok()?;
+        let EdgePoint { point, tangent } = edge.length_midpoint().ok()?;
         let normals = [faces[0].normal_at(point).ok()?, faces[1].normal_at(point).ok()?];
         let step = edge.length() * EdgeCorner::PROBE;
         let convex =

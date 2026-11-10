@@ -212,32 +212,24 @@ impl Edge {
         dvec3(point.X(), point.Y(), point.Z())
     }
 
-    /// The point halfway along the edge's length, and the unit tangent there.
-    /// The same as [`midpoint`](Self::midpoint) on lines and circles; on curves
+    /// The point halfway along the edge's length. The same as
+    /// [`midpoint`](Self::midpoint) on lines and circles; on curves
     /// parametrized unevenly, such as B-splines, `midpoint` drifts from it.
-    pub fn length_midpoint(&self) -> Result<(DVec3, DVec3), Error> {
+    pub fn length_midpoint(&self) -> Result<EdgePoint, Error> {
         let curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
         let abscissa = ffi::GCPnts_AbscissaPoint_ctor(&curve, 0.5 * self.length(), curve.FirstParameter())
             .map_err(|e| Error::ArcLengthFailed(e.what().to_string()))?;
         if !abscissa.IsDone() {
             return Err(Error::ArcLengthFailed("no point at half the length".to_owned()));
         }
-        let middle = abscissa.Parameter();
-        let point = ffi::BRepAdaptor_Curve_value(&curve, middle);
-
-        Ok((dvec3(point.X(), point.Y(), point.Z()), tangent_at(&curve, middle)))
+        Ok(EdgePoint::at(&curve, abscissa.Parameter()))
     }
 
-    /// The point of the edge nearest `point`, and the unit tangent there.
-    pub fn project(&self, point: DVec3) -> Result<(DVec3, DVec3), Error> {
-        let (mut first, mut last) = (0.0, 0.0);
-        let geometry = ffi::BRep_Tool_Curve(&self.inner, &mut first, &mut last);
-        if geometry.IsNull() {
-            return Err(Error::CurveProjectionFailed("the edge has no 3D curve".to_owned()));
-        }
+    /// The point of the edge nearest `point`.
+    pub fn project(&self, point: DVec3) -> Result<EdgePoint, Error> {
+        let (projector, first, last) = self.projector(point)?;
         // The projection finds only perpendicular feet within the range, so the
         // ends compete with it.
-        let projector = ffi::GeomAPI_ProjectPointOnCurve_ctor(&make_point(point), &geometry, first, last);
         let foot = projector.LowerDistanceParameter().ok();
 
         let curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
@@ -250,7 +242,28 @@ impl Edge {
             .chain([first, last])
             .min_by(|&a, &b| at(a).distance_squared(point).total_cmp(&at(b).distance_squared(point)))
             .expect("the ends are always candidates");
-        Ok((at(u), tangent_at(&curve, u)))
+        Ok(EdgePoint::at(&curve, u))
+    }
+
+    /// Every point of the edge where the line from `point` meets it at a right
+    /// angle. The ends count only if it does there.
+    pub fn projections(&self, point: DVec3) -> Result<Vec<EdgePoint>, Error> {
+        let (projector, _, _) = self.projector(point)?;
+        let curve = ffi::BRepAdaptor_Curve_ctor(&self.inner);
+        let feet = (1..=projector.NbPoints()).map(|index| EdgePoint::at(&curve, projector.Parameter(index)));
+        Ok(feet.collect())
+    }
+
+    /// The projection of `point` onto the edge's 3D curve, within the edge's
+    /// parameter range, and that range.
+    fn projector(&self, point: DVec3) -> Result<(UniquePtr<ffi::GeomAPI_ProjectPointOnCurve>, f64, f64), Error> {
+        let (mut first, mut last) = (0.0, 0.0);
+        let geometry = ffi::BRep_Tool_Curve(&self.inner, &mut first, &mut last);
+        if geometry.IsNull() {
+            return Err(Error::CurveProjectionFailed("the edge has no 3D curve".to_owned()));
+        }
+        let projector = ffi::GeomAPI_ProjectPointOnCurve_ctor(&make_point(point), &geometry, first, last);
+        Ok((projector, first, last))
     }
 
     /// Unit tangent at [`start_point`](Self::start_point), pointing along the edge.
@@ -344,6 +357,22 @@ impl Edge {
         let face = ffi::TopoDS_cast_to_face(make_prism.pin_mut().Shape());
 
         Face::from_face(face)
+    }
+}
+
+/// A point of an edge, and the edge's unit tangent there, pointing along it
+/// (zero where the curve has no direction).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EdgePoint {
+    pub point: DVec3,
+    pub tangent: DVec3,
+}
+
+impl EdgePoint {
+    /// The point of `curve` at parameter `u`.
+    fn at(curve: &ffi::BRepAdaptor_Curve, u: f64) -> Self {
+        let point = ffi::BRepAdaptor_Curve_value(curve, u);
+        Self { point: dvec3(point.X(), point.Y(), point.Z()), tangent: tangent_at(curve, u) }
     }
 }
 
@@ -448,7 +477,7 @@ mod tests {
     #[test]
     fn a_point_projects_onto_a_circle_with_its_tangent() {
         let circle = Edge::circle(DVec3::ZERO, DVec3::Z, 2.0).unwrap();
-        let (nearest, tangent) = circle.project(dvec3(3.0, 0.0, 1.0)).unwrap();
+        let EdgePoint { point: nearest, tangent } = circle.project(dvec3(3.0, 0.0, 1.0)).unwrap();
         assert!((nearest - dvec3(2.0, 0.0, 0.0)).length() < 1e-9, "{nearest}");
         assert!((tangent.y.abs() - 1.0).abs() < 1e-9, "{tangent}");
     }
@@ -456,12 +485,36 @@ mod tests {
     #[test]
     fn a_point_past_a_segment_projects_onto_its_end() {
         let edge = Edge::segment(DVec3::ZERO, dvec3(2.0, 0.0, 0.0)).unwrap();
-        let (nearest, tangent) = edge.project(dvec3(3.0, 1.0, 0.0)).unwrap();
+        let EdgePoint { point: nearest, tangent } = edge.project(dvec3(3.0, 1.0, 0.0)).unwrap();
         assert!((nearest - dvec3(2.0, 0.0, 0.0)).length() < 1e-9, "{nearest}");
         assert!((tangent - DVec3::X).length() < 1e-9, "{tangent}");
 
-        let (inside, _) = edge.project(dvec3(0.5, 1.0, 0.0)).unwrap();
+        let inside = edge.project(dvec3(0.5, 1.0, 0.0)).unwrap().point;
         assert!((inside - dvec3(0.5, 0.0, 0.0)).length() < 1e-9, "{inside}");
+    }
+
+    #[test]
+    fn a_point_projects_square_onto_both_sides_of_a_circle() {
+        let circle = Edge::circle(DVec3::ZERO, DVec3::Z, 2.0).unwrap();
+        let mut feet = circle.projections(dvec3(3.0, 0.0, 1.0)).unwrap();
+        feet.sort_by(|a, b| a.point.x.total_cmp(&b.point.x));
+
+        let [far, near] = feet.as_slice() else { panic!("expected two feet: {feet:?}") };
+        assert!((far.point - dvec3(-2.0, 0.0, 0.0)).length() < 1e-9, "{far:?}");
+        assert!((near.point - dvec3(2.0, 0.0, 0.0)).length() < 1e-9, "{near:?}");
+        assert!((near.tangent.y.abs() - 1.0).abs() < 1e-9, "{near:?}");
+    }
+
+    /// Past a segment's end no line from the point meets it square.
+    #[test]
+    fn a_segment_has_a_foot_only_beside_it() {
+        let edge = Edge::segment(DVec3::ZERO, dvec3(2.0, 0.0, 0.0)).unwrap();
+        let feet = edge.projections(dvec3(0.5, 1.0, 0.0)).unwrap();
+        let [foot] = feet.as_slice() else { panic!("expected one foot: {feet:?}") };
+        assert!((foot.point - dvec3(0.5, 0.0, 0.0)).length() < 1e-9, "{foot:?}");
+        assert!((foot.tangent - DVec3::X).length() < 1e-9, "{foot:?}");
+
+        assert!(edge.projections(dvec3(3.0, 1.0, 0.0)).unwrap().is_empty());
     }
 
     #[test]
@@ -503,7 +556,7 @@ mod tests {
     #[test]
     fn a_segment_length_midpoint_is_its_midpoint() {
         let edge = Edge::segment(DVec3::ZERO, dvec3(0.0, 3.0, 4.0)).unwrap();
-        let (middle, tangent) = edge.length_midpoint().unwrap();
+        let EdgePoint { point: middle, tangent } = edge.length_midpoint().unwrap();
 
         assert!((middle - edge.midpoint()).length() < 1e-9);
         assert!((tangent - dvec3(0.0, 0.6, 0.8)).length() < 1e-9);
@@ -512,7 +565,7 @@ mod tests {
     #[test]
     fn a_circle_length_midpoint_is_across_from_its_start() {
         let circle = Edge::circle(DVec3::ZERO, DVec3::Z, 2.0).unwrap();
-        let (middle, tangent) = circle.length_midpoint().unwrap();
+        let EdgePoint { point: middle, tangent } = circle.length_midpoint().unwrap();
 
         assert!((middle + circle.start_point()).length() < 1e-9, "the midpoint is not across from the start");
         assert!((tangent.length() - 1.0).abs() < 1e-9, "the tangent is not a unit vector");
@@ -523,7 +576,7 @@ mod tests {
     fn a_straight_spline_length_midpoint_is_its_middle() {
         let points = [DVec3::ZERO, dvec3(1.0, 0.0, 0.0), dvec3(10.0, 0.0, 0.0)];
         let spline = Edge::spline_from_points(points, None, false).unwrap();
-        let (middle, tangent) = spline.length_midpoint().unwrap();
+        let EdgePoint { point: middle, tangent } = spline.length_midpoint().unwrap();
 
         assert!((middle - dvec3(5.0, 0.0, 0.0)).length() < 1e-6, "{middle}");
         assert!((tangent.abs() - DVec3::X).length() < 1e-6, "{tangent}");
